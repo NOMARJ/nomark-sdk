@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "$schema": "nomark-graph-v1",
+  "description": "Traceability graph: Epic \u2192 Feature \u2192 Story \u2192 Session \u2192 Decision \u2192 Commit. Auto-maintained by session-end hook and /memory save.",
+  "last_rebuilt": "2026-04-07T06:59:53.382771",
+  "nodes": {
+    "commit:35c0a98": {
+      "type": "commit",
+      "hash": "35c0a98",
+      "message": "ci: tolerate already-published npm versions",
+      "date": "2026-04-06T22:32:40+10:00"
+    },
+    "commit:07475bd": {
+      "type": "commit",
+      "hash": "07475bd",
+      "message": "ci: add contents:read permission to publish-pypi job",
+      "date": "2026-04-06T22:23:04+10:00"
+    },
+    "commit:e5254f2": {
+      "type": "commit",
+      "hash": "e5254f2",
+      "message": "ci: remove --provenance flag (requires public repo)",
+      "date": "2026-04-06T22:20:49+10:00"
+    },
+    "commit:f8bd63c": {
+      "type": "commit",
+      "hash": "f8bd63c",
+      "message": "ci: install Python package before running tests",
+      "date": "2026-04-06T21:47:44+10:00"
+    },
+    "commit:7df38a3": {
+      "type": "commit",
+      "hash": "7df38a3",
+      "message": "ci: OIDC trusted publishing for PyPI, fix npm provenance",
+      "date": "2026-04-06T21:25:50+10:00"
+    },
+    "commit:81cb893": {
+      "type": "commit",
+      "hash": "81cb893",
+      "message": "docs: add professional READMEs with badges, bump v0.1.1",
+      "date": "2026-04-06T21:11:55+10:00"
+    },
+    "commit:94d8b78": {
+      "type": "commit",
+      "hash": "94d8b78",
+      "message": "ci: OIDC trusted publishing + node 22",
+      "date": "2026-04-06T20:40:39+10:00"
+    },
+    "commit:40a734b": {
+      "type": "commit",
+      "hash": "40a734b",
+      "message": "ci: add test + publish workflows",
+      "date": "2026-04-06T20:17:57+10:00"
+    },
+    "commit:2b3c512": {
+      "type": "commit",
+      "hash": "2b3c512",
+      "message": "chore: add license files (Apache 2.0 + BSL 1.1)",
+      "date": "2026-04-06T20:16:18+10:00"
+    },
+    "commit:261d8c3": {
+      "type": "commit",
+      "hash": "261d8c3",
+      "message": "chore: install, build, verify tests",
+      "date": "2026-04-06T20:06:35+10:00"
+    },
+    "commit:b5c795a": {
+      "type": "commit",
+      "hash": "b5c795a",
+      "message": "chore: rename npm scope to @nomark-ai",
+      "date": "2026-04-06T20:04:16+10:00"
+    },
+    "commit:5e1abb1": {
+      "type": "commit",
+      "hash": "5e1abb1",
+      "message": "chore: add CLAUDE.md governance + CHARTER.md",
+      "date": "2026-04-06T19:53:02+10:00"
+    },
+    "commit:67292b0": {
+      "type": "commit",
+      "hash": "67292b0",
+      "message": "feat: initial SDK monorepo with engine, engine-python, and pro packages",
+      "date": "2026-04-06T19:27:19+10:00"
+    }
+  },
+  "edges": []
+}
