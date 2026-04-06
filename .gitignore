@@ -1,0 +1,9 @@
+node_modules
+.venv
+.venv-old
+dist
+__pycache__
+*.pyc
+.pytest_cache
+*.egg-info
+build

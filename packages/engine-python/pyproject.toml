@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nomark-engine"
+version = "0.1.0"
+description = "NOMARK Engine — open-core agent outcome quality resolver"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [
+    { name = "Reece Frazier" },
+]
+keywords = ["nomark", "ai", "agent", "preferences", "intent", "quality", "trust"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "pydantic>=2.0,<3",
+]
+
+[project.urls]
+Homepage = "https://github.com/nomark-dev/nomark"
+Repository = "https://github.com/nomark-dev/nomark"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nomark_engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.10"
