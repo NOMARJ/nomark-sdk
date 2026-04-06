@@ -1,6 +1,6 @@
 {
   "name": "@nomark-ai/pro",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "NOMARK Pro — trust contract, instinct engine, governance, critical-field gate",
   "license": "BSL-1.1",
   "type": "module",
@@ -16,6 +16,7 @@
   },
   "files": [
     "dist",
+    "README.md",
     "LICENSE"
   ],
   "scripts": {

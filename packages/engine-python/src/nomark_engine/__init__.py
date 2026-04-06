@@ -1,6 +1,6 @@
 """NOMARK Engine — open-core agent outcome quality resolver."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .schema import (
     Context, Outcome, RequestType, PatternType, RubricStage, SignalType, Scope,

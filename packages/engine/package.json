@@ -1,6 +1,6 @@
 {
   "name": "@nomark-ai/engine",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "NOMARK Engine — open-core agent outcome quality resolver",
   "license": "Apache-2.0",
   "type": "module",
@@ -19,6 +19,7 @@
   },
   "files": [
     "dist",
+    "README.md",
     "LICENSE"
   ],
   "scripts": {
