@@ -14,7 +14,7 @@ type AdminDb = {
   }
 }
 
-async function checkAdminRole(db: AdminDb, teamId: string, userId: string): Promise<void> {
+async function checkAdminRole(db: AdminDb, teamId: string, _userId: string): Promise<void> {
   const result = db.from('team_members').select().eq('team_id', teamId)
   const members = (result.data ?? []) as Array<{ role: string }>
   const member = members.find(() => true) // simplified for mock

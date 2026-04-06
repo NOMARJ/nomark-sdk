@@ -3,7 +3,7 @@ import type { SyncConfig, SyncStatus, SyncEntry } from './types.js'
 import { filterSyncable } from './privacy-filter.js'
 import { stageForSync } from './protocol.js'
 import { OfflineQueue } from './offline-queue.js'
-import { mergeLedger, entryKey } from './merge.js'
+import { entryKey } from './merge.js'
 import { loadSupabase } from './supabase-loader.js'
 
 export type PushResult = {
@@ -100,7 +100,7 @@ export function createSyncClient(config: SyncConfig): SyncClient {
 
       lastPull = new Date().toISOString()
 
-      const remote = (result.data ?? []).map((row: { signal_type: string; data: unknown }) => ({
+      const remote = ((result.data ?? []) as Array<{ signal_type: string; data: unknown }>).map((row) => ({
         type: row.signal_type,
         data: row.data,
       })) as LedgerEntry[]
@@ -115,12 +115,13 @@ export function createSyncClient(config: SyncConfig): SyncClient {
           schema: 'public',
           table: 'ledger_entries',
           filter: `user_id=eq.${config.userId}`,
-        } as unknown, (payload: { new: { signal_type: string; data: unknown } }) => {
-          const entry = { type: payload.new.signal_type, data: payload.new.data } as LedgerEntry
+        } as unknown, (payload: unknown) => {
+          const p = payload as { new: { signal_type: string; data: unknown } }
+          const entry = { type: p.new.signal_type, data: p.new.data } as LedgerEntry
           callback([entry])
         })
 
-      const sub = channel.subscribe()
+      channel.subscribe()
 
       return () => {
         db.removeChannel(channel)

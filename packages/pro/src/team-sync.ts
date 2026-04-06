@@ -54,7 +54,7 @@ export function createTeamSync(config: TeamSyncConfig): TeamSync {
       const result = db.from('team_preferences').select().eq('team_id', config.teamId)
       if (result.error) throw new Error(result.error.message)
 
-      return (result.data ?? []).map((row: { signal_type: string; data: unknown }) => ({
+      return ((result.data ?? []) as Array<{ signal_type: string; data: unknown }>).map((row) => ({
         type: row.signal_type,
         data: row.data,
       })) as LedgerEntry[]
