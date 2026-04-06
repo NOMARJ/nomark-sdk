@@ -1,6 +1,6 @@
 import {
   createResolver, type ResolverConfig, type ResolverResult,
-} from '@nomark/engine'
+} from '@nomark-ai/engine'
 import { createTrustContract, type TrustState } from './trust.js'
 import { createInstinctStore, type InstinctStore } from './instincts.js'
 import { createLifecycle, CODE_LIFECYCLE, type LifecycleInstance, type LifecycleConfig } from './governance.js'

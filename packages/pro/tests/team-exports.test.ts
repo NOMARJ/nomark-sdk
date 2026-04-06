@@ -7,7 +7,7 @@ import {
   setTeamPreference,
 } from '../src/index.js'
 
-describe('team sync exports from @nomark/pro barrel', () => {
+describe('team sync exports from @nomark-ai/pro barrel', () => {
   it('exports createTeamSync as function', () => {
     expect(typeof createTeamSync).toBe('function')
   })

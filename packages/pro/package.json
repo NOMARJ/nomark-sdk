@@ -1,5 +1,5 @@
 {
-  "name": "@nomark/pro",
+  "name": "@nomark-ai/pro",
   "version": "0.1.0",
   "description": "NOMARK Pro — trust contract, instinct engine, governance, critical-field gate",
   "license": "BSL-1.1",
@@ -26,7 +26,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@nomark/engine": "workspace:*"
+    "@nomark-ai/engine": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -35,7 +35,7 @@
     "vitest": "^2.0.0"
   },
   "peerDependencies": {
-    "@nomark/engine": ">=0.1.0"
+    "@nomark-ai/engine": ">=0.1.0"
   },
   "engines": {
     "node": ">=18"

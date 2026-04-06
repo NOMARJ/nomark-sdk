@@ -16,7 +16,7 @@ import {
   SyncConfigSchema,
 } from '../src/index.js'
 
-describe('sync exports from @nomark/engine barrel', () => {
+describe('sync exports from @nomark-ai/engine barrel', () => {
   it('exports createSyncClient as function', () => {
     expect(typeof createSyncClient).toBe('function')
   })

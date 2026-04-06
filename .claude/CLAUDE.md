@@ -43,13 +43,13 @@ This repo is governed by CHARTER.md (sourced from the NOMARK OS repo). Core prin
 
 ## Package Parity
 
-- `@nomark/engine` (TypeScript) is the reference implementation
+- `@nomark-ai/engine` (TypeScript) is the reference implementation
 - `nomark-engine` (Python) must produce identical results for identical inputs
 - When modifying resolver logic, decay formulas, or scoring: update both packages
 
 ## Publishing
 
-- npm: `@nomark/engine` (Apache 2.0), `@nomark/pro` (BSL 1.1)
+- npm: `@nomark-ai/engine` (Apache 2.0), `@nomark-ai/pro` (BSL 1.1)
 - PyPI: `nomark-engine` (Apache 2.0)
 - Version bumps are manual and deliberate
 - Never publish without full test suite passing

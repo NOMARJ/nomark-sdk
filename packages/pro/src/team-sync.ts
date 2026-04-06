@@ -1,4 +1,4 @@
-import type { LedgerEntry } from '@nomark/engine'
+import type { LedgerEntry } from '@nomark-ai/engine'
 
 export type TeamSyncConfig = {
   teamId: string

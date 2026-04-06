@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 
 describe('lazy Supabase import', () => {
-  it('importing @nomark/engine does not throw when Supabase is not installed', async () => {
+  it('importing @nomark-ai/engine does not throw when Supabase is not installed', async () => {
     // The main index re-exports sync types and functions — this should not throw
     const mod = await import('../src/index.js')
     expect(mod.createSyncClient).toBeDefined()

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createTeamSync, type TeamSync, type TeamSyncConfig } from '../src/team-sync.js'
 
-vi.mock('@nomark/engine', async (importOriginal) => {
+vi.mock('@nomark-ai/engine', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>
   return {
     ...actual,

@@ -4,17 +4,17 @@ Monorepo for NOMARK SDK packages.
 
 | Package | Registry | Description |
 |---------|----------|-------------|
-| `@nomark/engine` | npm | Open-core agent outcome quality resolver |
+| `@nomark-ai/engine` | npm | Open-core agent outcome quality resolver |
 | `nomark-engine` | PyPI | Python port of the engine |
-| `@nomark/pro` | npm | Trust contract, instinct engine, governance, critical-field gate |
+| `@nomark-ai/pro` | npm | Trust contract, instinct engine, governance, critical-field gate |
 
 ## Structure
 
 ```
 packages/
-  engine/          @nomark/engine (TypeScript, npm)
+  engine/          @nomark-ai/engine (TypeScript, npm)
   engine-python/   nomark-engine (Python, PyPI)
-  pro/             @nomark/pro (TypeScript, npm)
+  pro/             @nomark-ai/pro (TypeScript, npm)
 ```
 
 ## Development

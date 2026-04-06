@@ -6,7 +6,7 @@ import {
   setTeamPreference,
   type TeamAdminConfig,
 } from '../src/team-admin.js'
-import type { LedgerEntry } from '@nomark/engine'
+import type { LedgerEntry } from '@nomark-ai/engine'
 
 const mockInsertData: unknown[] = []
 const mockDb = {

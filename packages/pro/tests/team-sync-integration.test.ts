@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createTeamSync } from '../src/team-sync.js'
 import { createTeam, inviteMember, setTeamPreference } from '../src/team-admin.js'
-import type { LedgerEntry } from '@nomark/engine'
+import type { LedgerEntry } from '@nomark-ai/engine'
 
-vi.mock('@nomark/engine', async (importOriginal) => {
+vi.mock('@nomark-ai/engine', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>
   return {
     ...actual,
