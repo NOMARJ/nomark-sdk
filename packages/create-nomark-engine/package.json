@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "test": "node --test 'tests/*.test.js'",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
