@@ -1,6 +1,6 @@
 {
   "name": "@nomark-ai/engine",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "NOMARK Engine — open-core agent outcome quality resolver",
   "license": "Apache-2.0",
   "type": "module",
@@ -51,9 +51,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/nomark-dev/nomark",
+    "url": "https://github.com/nomark-dev/nomark-sdk",
     "directory": "packages/engine"
   },
+  "homepage": "https://github.com/nomark-dev/nomark-sdk#readme",
   "keywords": [
     "nomark",
     "ai",

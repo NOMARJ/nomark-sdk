@@ -3,7 +3,8 @@
   "private": true,
   "workspaces": [
     "packages/engine",
-    "packages/pro"
+    "packages/pro",
+    "packages/create-nomark-engine"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

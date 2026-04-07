@@ -1,0 +1,37 @@
+{
+  "name": "nomark-engine",
+  "version": "0.1.0",
+  "description": "Set up @nomark-ai/engine in your project — ledger, AI context, and quick-start in under 60 seconds",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "nomark-engine": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nomark-dev/nomark-sdk",
+    "directory": "packages/create-nomark-engine"
+  },
+  "keywords": [
+    "nomark",
+    "ai",
+    "agent",
+    "preferences",
+    "setup",
+    "cli"
+  ]
+}
