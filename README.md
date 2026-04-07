@@ -24,6 +24,12 @@ Models are commoditizing. Inference cost, context length, and benchmark scores c
 ## Quick Start
 
 ```bash
+npx nomark-engine
+```
+
+This creates your ledger, adds AI context to your project (CLAUDE.md, .cursor/rules, etc.), and prints next steps. Then:
+
+```bash
 npm install @nomark-ai/engine
 ```
 
@@ -99,6 +105,7 @@ The resolver scores preferences using weighted factors (specificity, evidence, r
 |---------|----------|---------|-------------|
 | [`@nomark-ai/engine`](packages/engine) | npm | Apache 2.0 | Resolver, ledger, decay, classifier, importers, sync |
 | [`nomark-engine`](packages/engine-python) | PyPI | Apache 2.0 | Python port — identical resolution, Pydantic v2 models |
+| [`nomark-engine`](packages/create-nomark-engine) | npm | Apache 2.0 | `npx nomark-engine` — project setup CLI |
 | [`@nomark-ai/pro`](packages/pro) | npm | BSL 1.1 | Trust contracts, instinct engine, governance, critical-field gates |
 
 The open engine is genuinely useful on its own. Pro adds the layers that enterprises need: trust-based autonomy control, pattern capture with confidence lifecycle, governance stages with audit trails, and schema-level gates that prevent agents from acting autonomously on high-risk fields.

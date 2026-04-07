@@ -221,7 +221,7 @@ function main(): void {
   console.log()
   printQuickStart(project)
 
-  console.log(`${DIM}  Docs: https://github.com/nomark-dev/nomark-sdk${RESET}`)
+  console.log(`${DIM}  Docs: https://github.com/NOMARJ/nomark-sdk${RESET}`)
   console.log()
 }
 

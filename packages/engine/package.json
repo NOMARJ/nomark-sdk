@@ -51,10 +51,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/nomark-dev/nomark-sdk",
+    "url": "https://github.com/NOMARJ/nomark-sdk",
     "directory": "packages/engine"
   },
-  "homepage": "https://github.com/nomark-dev/nomark-sdk#readme",
+  "homepage": "https://github.com/NOMARJ/nomark-sdk#readme",
   "keywords": [
     "nomark",
     "ai",

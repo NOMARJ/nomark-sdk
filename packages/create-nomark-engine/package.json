@@ -1,6 +1,6 @@
 {
   "name": "nomark-engine",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Set up @nomark-ai/engine in your project — ledger, AI context, and quick-start in under 60 seconds",
   "license": "Apache-2.0",
   "type": "module",
@@ -24,7 +24,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/nomark-dev/nomark-sdk",
+    "url": "https://github.com/NOMARJ/nomark-sdk",
     "directory": "packages/create-nomark-engine"
   },
   "keywords": [

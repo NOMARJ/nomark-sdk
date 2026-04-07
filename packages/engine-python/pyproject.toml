@@ -29,8 +29,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/nomark-dev/nomark"
-Repository = "https://github.com/nomark-dev/nomark"
+Homepage = "https://github.com/NOMARJ/nomark-sdk"
+Repository = "https://github.com/NOMARJ/nomark-sdk"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nomark_engine"]
