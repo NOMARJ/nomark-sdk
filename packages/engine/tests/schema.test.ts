@@ -41,6 +41,17 @@ describe('SigPrefSchema', () => {
     }
     expect(SigPrefSchema.safeParse(pref).success).toBe(true)
   })
+
+  it('accepts source_quote and source_scope fields', () => {
+    const pref = {
+      dim: 'tone', target: 'direct', w: 0.9, n: 3,
+      src: { chat: 3 }, ctd: 0, scope: '*', decay: 0.98,
+      last: '2026-04-08',
+      source_quote: 'just give it to me straight',
+      source_scope: 'context:chat',
+    }
+    expect(SigPrefSchema.safeParse(pref).success).toBe(true)
+  })
 })
 
 describe('SigMapSchema', () => {
@@ -59,6 +70,14 @@ describe('SigMapSchema', () => {
       intent: ['x'], conf: 0.5, n: 1, last: '2026-04-03',
     }
     expect(SigMapSchema.safeParse(map).success).toBe(false)
+  })
+
+  it('accepts custom pattern_type for user-authored maps', () => {
+    const map = {
+      trigger: 'always cite sources', pattern_type: 'custom' as const,
+      intent: ['require_citation'], conf: 0.5, n: 1, scope: '*', last: '2026-04-10',
+    }
+    expect(SigMapSchema.safeParse(map).success).toBe(true)
   })
 })
 

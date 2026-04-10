@@ -5,7 +5,7 @@ import { z } from 'zod'
 export type Context = 'chat' | 'cowork' | 'code'
 export type Outcome = 'accepted' | 'edited' | 'corrected' | 'rejected' | 'abandoned' | 'unknown'
 export type RequestType = 'question' | 'task' | 'brainstorm' | 'decision' | 'critique' | 'creative' | 'continuation' | 'reaction'
-export type PatternType = 'rewrite_request' | 'scope_change' | 'quality_complaint' | 'format_request' | 'style_override' | 'abort'
+export type PatternType = 'rewrite_request' | 'scope_change' | 'quality_complaint' | 'format_request' | 'style_override' | 'abort' | 'custom'
 export type RubricStage = 'ephemeral' | 'pending' | 'proven' | 'trusted'
 export type SignalType = 'meta' | 'pref' | 'map' | 'asn' | 'rub'
 
@@ -22,7 +22,7 @@ const IsoDatetime = z.string().regex(IsoDatetimePattern)
 const ContextSchema = z.enum(['chat', 'cowork', 'code'])
 const OutcomeSchema = z.enum(['accepted', 'edited', 'corrected', 'rejected', 'abandoned', 'unknown'])
 const RequestTypeSchema = z.enum(['question', 'task', 'brainstorm', 'decision', 'critique', 'creative', 'continuation', 'reaction'])
-const PatternTypeSchema = z.enum(['rewrite_request', 'scope_change', 'quality_complaint', 'format_request', 'style_override', 'abort'])
+const PatternTypeSchema = z.enum(['rewrite_request', 'scope_change', 'quality_complaint', 'format_request', 'style_override', 'abort', 'custom'])
 const RubricStageSchema = z.enum(['ephemeral', 'pending', 'proven', 'trusted'])
 
 const ContextCountsSchema = z.object({
@@ -43,6 +43,8 @@ export const SigPrefSchema = z.object({
   last: IsoDate,
   staged: z.boolean().optional(),
   note: z.string().optional(),
+  source_quote: z.string().optional(),
+  source_scope: z.string().optional(),
 })
 
 export const SigMapSchema = z.object({
