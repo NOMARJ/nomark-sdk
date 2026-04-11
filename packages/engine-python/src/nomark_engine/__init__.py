@@ -1,6 +1,6 @@
 """NOMARK Engine — open-core agent outcome quality resolver."""
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 from .schema import (
     Context, Outcome, RequestType, PatternType, RubricStage, SignalType, Scope,
@@ -23,6 +23,9 @@ from .resolver import (
     resolve_dimension, match_meaning_maps, find_defaults,
     create_resolver, Resolver, ResolverConfig, ResolverResult,
     DimensionResult, MeaningMapMatch, DefaultMatch, ScoredPref, ScoringFactors, ResolverMeta,
+)
+from .detect_contradictions import (
+    detect_contradictions, Contradiction, ContradictionResolution,
 )
 
 __all__ = [
@@ -48,4 +51,6 @@ __all__ = [
     "resolve_dimension", "match_meaning_maps", "find_defaults",
     "create_resolver", "Resolver", "ResolverConfig", "ResolverResult",
     "DimensionResult", "MeaningMapMatch", "DefaultMatch", "ScoredPref", "ScoringFactors", "ResolverMeta",
+    # Contradictions
+    "detect_contradictions", "Contradiction", "ContradictionResolution",
 ]
