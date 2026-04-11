@@ -6,6 +6,12 @@ export { computeDecay, effectiveWeight } from './decay.js'
 export { utilityScore, pruneToCapacity } from './utility.js'
 export { classify, type ClassificationResult } from './classifier.js'
 export { createResolver, type ResolverConfig, type ResolverResult } from './resolver.js'
+export {
+  detectContradictions,
+  type Contradiction,
+  type ContradictionResolution,
+  type DetectContradictionsOptions,
+} from './detectContradictions.js'
 
 // --- Sync ---
 export {
