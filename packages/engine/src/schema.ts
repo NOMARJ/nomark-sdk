@@ -47,6 +47,34 @@ export const SigPrefSchema = z.object({
   source_scope: z.string().optional(),
 })
 
+// Cognitive evidence quote — one observation grounding a cognitive dimension score.
+export const CogEvidenceSchema = z.object({
+  quote: z.string(),
+  source: z.string(),
+  provider: z.string(),
+  ts: z.string(),
+})
+
+// Cognitive row — extracted by the MEE cognitive profile extractor.
+// Stored in ledger_entries with signal_type='pref' and dim_key='cog_*';
+// discriminated at runtime by `data.kind === 'cog'`.
+export const SigCogSchema = z.object({
+  kind: z.literal('cog'),
+  ontology_version: z.number().int().min(1),
+  dim_key: z.string().regex(/^cog_/),
+  score: z.number().min(0).max(1),
+  band: z.string(),
+  evidence: z.array(CogEvidenceSchema),
+  observation_count: z.number().int().min(0),
+  first_observed: z.string(),
+  last_observed: z.string(),
+  confidence: z.number().min(0).max(1).optional(),
+  stable: z.boolean().optional(),
+  providers: z.array(z.string()).optional(),
+  extractor: z.string(),
+  extracted_at: z.string(),
+})
+
 export const SigMapSchema = z.object({
   trigger: z.string(),
   pattern_type: PatternTypeSchema,
@@ -134,7 +162,7 @@ export const ArchiveEventSchema = z.object({
 
 export const LedgerEntrySchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('meta'), data: SigMetaSchema }),
-  z.object({ type: z.literal('pref'), data: SigPrefSchema }),
+  z.object({ type: z.literal('pref'), data: z.union([SigCogSchema, SigPrefSchema]) }),
   z.object({ type: z.literal('map'), data: SigMapSchema }),
   z.object({ type: z.literal('asn'), data: SigAsnSchema }),
   z.object({ type: z.literal('rub'), data: SigRubSchema }),
@@ -143,6 +171,14 @@ export const LedgerEntrySchema = z.discriminatedUnion('type', [
 // --- Inferred types ---
 
 export type SigPref = z.infer<typeof SigPrefSchema>
+export type SigCog = z.infer<typeof SigCogSchema>
+
+// Runtime guard: a pref entry's `data` is SigPref | SigCog; cognitive rows
+// carry `kind: 'cog'` and never match the stylistic resolver/utility paths.
+export function isStylisticPref(data: SigPref | SigCog): data is SigPref {
+  return !('kind' in data && data.kind === 'cog')
+}
+export type CogEvidence = z.infer<typeof CogEvidenceSchema>
 export type SigMap = z.infer<typeof SigMapSchema>
 export type SigAsn = z.infer<typeof SigAsnSchema>
 export type SigMeta = z.infer<typeof SigMetaSchema>

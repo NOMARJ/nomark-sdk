@@ -1,4 +1,4 @@
-import { type LedgerEntry, type SigPref } from './schema.js'
+import { type LedgerEntry, type SigPref, isStylisticPref } from './schema.js'
 import { resolverScore, type ScoredPref } from './resolver.js'
 import { effectiveWeight } from './decay.js'
 
@@ -53,6 +53,7 @@ export function detectContradictions(
   const active: SigPref[] = []
   for (const entry of entries) {
     if (entry.type !== 'pref') continue
+    if (!isStylisticPref(entry.data)) continue
     const ew = effectiveWeight(entry.data.w, entry.data.decay)
     if (ew < minEffectiveWeight) continue
     active.push(entry.data)

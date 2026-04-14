@@ -1,4 +1,4 @@
-import { type LedgerEntry, type SigPref, type SigMap, type SigAsn } from './schema.js'
+import { type LedgerEntry, type SigPref, type SigMap, type SigAsn, isStylisticPref } from './schema.js'
 import { effectiveWeight } from './decay.js'
 
 // --- Scope specificity ---
@@ -191,7 +191,7 @@ export function resolveDimension(
 ): DimensionResult {
   const candidates = entries
     .filter((e): e is LedgerEntry & { type: 'pref'; data: SigPref } =>
-      e.type === 'pref' && e.data.dim === dimension && scopeMatches(e.data.scope, context, topic)
+      e.type === 'pref' && isStylisticPref(e.data) && e.data.dim === dimension && scopeMatches(e.data.scope, context, topic)
     )
     .map(e => resolverScore(e.data, now))
     .sort((a, b) => b._score - a._score)
@@ -284,7 +284,7 @@ export function createResolver(config: ResolverConfig) {
     resolveAll(): ResolverResult {
       const dimensions = new Set<string>()
       for (const entry of entries) {
-        if (entry.type === 'pref') {
+        if (entry.type === 'pref' && isStylisticPref(entry.data)) {
           dimensions.add(entry.data.dim)
         }
       }
@@ -312,7 +312,7 @@ export function createResolver(config: ResolverConfig) {
     resolveInput(input: string): ResolverResult {
       const dimensions = new Set<string>()
       for (const entry of entries) {
-        if (entry.type === 'pref') {
+        if (entry.type === 'pref' && isStylisticPref(entry.data)) {
           dimensions.add(entry.data.dim)
         }
       }

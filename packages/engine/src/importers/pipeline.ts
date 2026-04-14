@@ -4,6 +4,7 @@ import type {
 } from './types.js'
 import { getConfidenceBand, getConfidenceWeight } from './types.js'
 import type { LedgerEntry, SigPref, SigMap } from '../schema.js'
+import { isStylisticPref } from '../schema.js'
 import { extractSignals } from './extractor.js'
 import { parseLedger } from '../ledger.js'
 
@@ -53,7 +54,7 @@ function deduplicateAgainstLedger(
   const existingMaps = new Set<string>()
 
   for (const entry of existingLedger) {
-    if (entry.type === 'pref') {
+    if (entry.type === 'pref' && isStylisticPref(entry.data)) {
       existingPrefs.add(`${entry.data.dim}::${entry.data.target}::${entry.data.scope}`)
     }
     if (entry.type === 'map') {

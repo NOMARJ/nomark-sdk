@@ -1,4 +1,4 @@
-import { type LedgerEntry, type SignalType } from './schema.js'
+import { type LedgerEntry, type SignalType, isStylisticPref } from './schema.js'
 import { ENTRY_CAPS, TOTAL_CAP } from './ledger.js'
 
 type UtilityInput = {
@@ -54,7 +54,7 @@ export function utilityScore(entry: UtilityInput, now: Date = new Date()): numbe
 export function isProtected(entry: LedgerEntry): boolean {
   if (entry.type === 'meta') return true
   if (entry.type === 'rub' && (entry.data.stage === 'proven' || entry.data.stage === 'trusted')) return true
-  if (entry.type === 'pref' && entry.data.n >= 15 && entry.data.ctd === 0) return true
+  if (entry.type === 'pref' && isStylisticPref(entry.data) && entry.data.n >= 15 && entry.data.ctd === 0) return true
   return false
 }
 
