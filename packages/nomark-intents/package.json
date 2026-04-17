@@ -1,0 +1,66 @@
+{
+  "name": "@nomark/intents",
+  "version": "0.4.0",
+  "description": "NOMARK Intents — 31-verb universal vocabulary for computational + design intent. The interlingua between meaning and execution.",
+  "license": "Apache-2.0",
+  "author": "NOMARK",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./verbs": {
+      "types": "./dist/verbs/index.d.ts",
+      "import": "./dist/verbs/index.mjs",
+      "require": "./dist/verbs/index.js"
+    },
+    "./compose": {
+      "types": "./dist/compose/index.d.ts",
+      "import": "./dist/compose/index.mjs",
+      "require": "./dist/compose/index.js"
+    },
+    "./validator": {
+      "types": "./dist/validator/index.d.ts",
+      "import": "./dist/validator/index.mjs",
+      "require": "./dist/validator/index.js"
+    },
+    "./registry": {
+      "types": "./dist/registry/index.d.ts",
+      "import": "./dist/registry/index.mjs",
+      "require": "./dist/registry/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "example:etl": "tsx src/examples/etl-pipeline.ts",
+    "example:dashboard": "tsx src/examples/fund-dashboard.ts",
+    "example:approval": "tsx src/examples/trade-approval.ts",
+    "example:deploy": "tsx src/examples/deploy-pipeline.ts"
+  },
+  "keywords": [
+    "nomark",
+    "intents",
+    "llm",
+    "ai",
+    "workflow",
+    "interlingua",
+    "codegen",
+    "ui"
+  ],
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}
