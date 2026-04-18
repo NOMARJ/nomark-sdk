@@ -139,6 +139,16 @@ Each compute backend handles the 20 compute verbs; each surface backend handles 
 
 SQL backends emit a fixed-spec warning for every EMIT verb ("cannot be expressed in SQL compute — add a host layer to drive this step") plus a terse comment in the generated `.sql`. The React backend composes a `Dashboard` orchestrator inline from the MONITOR + ARRANGE + STATUS/GUIDE verbs, with deterministic single-quoted JSX attributes (no Prettier pass). Register additional backends via `registerResolver(label, () => new MyBackend())`; ambiguous `TargetTag`s (both `compute` and `surface` set) throw — pass a label string instead.
 
+## Examples
+
+Runnable examples live in [`examples/`](examples/):
+
+- `examples/compute-resolve.ts` — `resolve(composition, 'typescript')` with a minimal ETL pipeline.
+- `examples/surface-resolve.ts` — `resolve(dashboard, 'react')` with a dashboard composition.
+- `examples/mixed-manifest.ts` — `resolveAll` across `typescript` + `python` + `react`.
+
+Each runs directly via `npx tsx examples/<file>.ts` from within the `packages/pro` workspace.
+
 ## License
 
 Business Source License 1.1
