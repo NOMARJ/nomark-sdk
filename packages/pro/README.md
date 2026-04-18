@@ -100,7 +100,7 @@ Multi-user team management with shared preference layers and Supabase-backed syn
 
 ### Intents Resolver
 
-Compute-side code emitters for the NOMARK Intents spec. Takes a `ComposedUnit`-compatible composition and produces executable source for one or more target languages.
+Compute- and surface-side code emitters for the NOMARK Intents spec. Takes a `ComposedUnit`-compatible composition and produces executable source for one or more target languages or UI frameworks.
 
 ```typescript
 import { resolve, resolveAll } from '@nomark-ai/pro'
@@ -108,9 +108,13 @@ import type { Composition } from '@nomark-ai/pro'
 
 const myEtl: Composition = { /* compose({...}) output from @nomark/intents */ }
 
-// Single target
+// Single compute target
 const ts = resolve(myEtl, 'typescript')
 // ts.files[0].content is runnable TypeScript
+
+// Single surface target
+const ui = resolve(myDashboard, 'react')
+// ui.files[0].path === 'Dashboard.tsx'
 
 // Multiple targets with a shipping manifest
 const manifest = resolveAll(myEtl, ['typescript', 'python', 'rust'], {
@@ -119,9 +123,21 @@ const manifest = resolveAll(myEtl, ['typescript', 'python', 'rust'], {
 // manifest.targets[i].files = [{ path, bytes }, ...], .warnings = [string, ...]
 ```
 
-Registered target labels: `typescript`, `python`, `rust`, `sql-postgres`, `sql-sqlite`, `sql-mysql`. Each backend handles the 7 compute verbs exercised by the canonical fixture (FETCH, VALIDATE, MAP, FILTER, REDUCE, PERSIST, EMIT); other compute verbs surface as `VERB_UNHANDLED` warnings. Surface verbs (MONITOR, DISPLAY, etc.) are stripped with a count warning — a separate surface-resolver pass consumes those.
+Registered target labels (7 total):
 
-SQL backends emit a fixed-spec warning for every EMIT verb ("cannot be expressed in SQL compute — add a host layer to drive this step") plus a terse comment in the generated `.sql`. Register additional backends via `registerResolver(label, () => new MyBackend())`.
+| Label | Kind | Output |
+|---|---|---|
+| `typescript` | compute | `*.ts` with async runtime + topological dispatcher |
+| `python` | compute | `*.py` with asyncio runtime, PEP 8 spacing |
+| `rust` | compute | `*.rs` + `Cargo.toml`, tokio async runtime |
+| `sql-postgres` | compute | `*.sql` with `ON CONFLICT` upsert |
+| `sql-sqlite` | compute | `*.sql` with `ON CONFLICT` upsert |
+| `sql-mysql` | compute | `*.sql` with `ON DUPLICATE KEY` upsert |
+| `react` | surface | `Dashboard.tsx` with 5 surface-verb handlers |
+
+Each compute backend handles the 20 compute verbs; each surface backend handles the 11 surface verbs. Unhandled verbs surface as `VERB_UNHANDLED` warnings. A resolver also strips verbs outside its family with a `VERBS_STRIPPED` count warning (compute resolvers strip surface verbs; surface resolvers strip compute verbs) — passing a mixed composition is safe.
+
+SQL backends emit a fixed-spec warning for every EMIT verb ("cannot be expressed in SQL compute — add a host layer to drive this step") plus a terse comment in the generated `.sql`. The React backend composes a `Dashboard` orchestrator inline from the MONITOR + ARRANGE + STATUS/GUIDE verbs, with deterministic single-quoted JSX attributes (no Prettier pass). Register additional backends via `registerResolver(label, () => new MyBackend())`; ambiguous `TargetTag`s (both `compute` and `surface` set) throw — pass a label string instead.
 
 ## License
 
