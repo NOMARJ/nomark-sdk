@@ -1,10 +1,10 @@
 # REACT_STYLE — surface fixture conventions
 
-**Status:** DRAFT — pending owner approval (SUR-000, 2026-04-18)
+**Status:** APPROVED — frozen 2026-04-18 (SUR-000)
 **Scope:** rules the React surface backend (`packages/pro/src/resolvers/react/backend.ts`) must reproduce byte-for-byte when emitting `expected/react/*.tsx`.
 **Authority:** byte-exact equality against `expected/react/Dashboard.tsx`.
 
-Once owner-approved, this document is frozen as contract. The backend conforms to it — it does not evolve independently.
+This document is frozen as contract. The backend conforms to it — it does not evolve independently. Changes require a new owner-approval cycle AND a matching fixture-file update in the same commit.
 
 ## Strings
 
@@ -126,4 +126,4 @@ This composition is reverse-engineered into `__fixtures__/surface-composition.ts
 
 ---
 
-**Frozen when:** owner comments `approved` on the SUR-000 commit (or explicit message ack). Until then, this document is DRAFT and subject to iteration.
+**Frozen:** 2026-04-18 by owner ack on SUR-000 commit `e717b35`. SUR-001 onward unblocked.
