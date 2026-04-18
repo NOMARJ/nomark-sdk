@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { resolveAll } from '../../src/resolvers/manifest.js'
 import { FIXTURE_COMPOSITION } from './__fixtures__/composition.js'
-import { FIXTURE_LABELS } from './harness.js'
+import { COMPUTE_LABELS } from './harness.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURE_MANIFEST_PATH = path.join(
@@ -19,7 +19,7 @@ const FIXTURE_BASE = '/mnt/user-data/outputs'
 
 describe('resolveAll', () => {
   it('produces a manifest byte-exact to the fixture when clock + basePath are pinned', async () => {
-    const manifest = resolveAll(FIXTURE_COMPOSITION, [...FIXTURE_LABELS], {
+    const manifest = resolveAll(FIXTURE_COMPOSITION, [...COMPUTE_LABELS], {
       basePath: FIXTURE_BASE,
       clock: FIXTURE_CLOCK,
     })

@@ -8,7 +8,7 @@ import { FIXTURE_COMPOSITION } from './__fixtures__/composition.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURE_ROOT = path.join(__dirname, '__fixtures__', 'expected')
 
-export const FIXTURE_LABELS = [
+export const COMPUTE_LABELS = [
   'typescript',
   'python',
   'rust',
@@ -17,7 +17,13 @@ export const FIXTURE_LABELS = [
   'sql-mysql',
 ] as const
 
+export const SURFACE_LABELS = ['react'] as const
+
+export const FIXTURE_LABELS = [...COMPUTE_LABELS, ...SURFACE_LABELS] as const
+
 export type FixtureLabel = (typeof FIXTURE_LABELS)[number]
+export type ComputeLabel = (typeof COMPUTE_LABELS)[number]
+export type SurfaceLabel = (typeof SURFACE_LABELS)[number]
 
 export type FixtureFile = {
   name: string

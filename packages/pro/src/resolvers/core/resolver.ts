@@ -1,13 +1,17 @@
 /**
- * BaseResolver — the contract every compute backend implements.
+ * BaseResolver — the contract every resolver backend implements.
  *
- * Each backend extends this class and supplies a handler per compute verb.
+ * Each backend extends this class and supplies a handler per verb it handles.
  * The base class drives the dispatch loop, applies the structural emit wrapper
- * (preamble / body / postamble), strips surface verbs with a count warning,
+ * (preamble / body / postamble), strips non-handled verbs with a count warning,
  * and accumulates diagnostics.
+ *
+ * Default behaviour handles the 20 compute verbs and strips the 11 surface
+ * verbs. Surface backends override `targetVerbs()` + `handlerKind()` to flip
+ * the buckets. See `SurfaceBackend` (react) for a concrete override.
  */
 
-import { partitionVerbs, type Composition, type ComputeVerb, type Verb } from './ir.js'
+import { partitionVerbs, type Composition, type ComputeVerb, type SurfaceVerb, type Verb } from './ir.js'
 
 export type ResolverWarning = {
   code: string
@@ -42,8 +46,13 @@ export type ResolverContext = {
 export abstract class BaseResolver {
   abstract readonly label: string
 
-  /** Compute-verb handlers. Subclasses populate this in their constructor. */
-  protected handlers: Partial<Record<ComputeVerb, VerbHandler>> = {}
+  /** Per-verb handlers. Subclasses populate this in their constructor.
+   *  Type covers both compute and surface verbs so a single base class can
+   *  serve both resolver families. Compute backends register compute verbs;
+   *  surface backends register surface verbs. Nothing enforces the kinds
+   *  match `handlerKind()` at the type level — the dispatch loop naturally
+   *  emits `VERB_UNHANDLED` for mismatches. */
+  protected handlers: Partial<Record<ComputeVerb | SurfaceVerb, VerbHandler>> = {}
 
   /** Emit the module-level preamble (imports, helpers, Ctx type). */
   protected abstract emitPreamble(c: Composition): string
@@ -69,14 +78,31 @@ export abstract class BaseResolver {
     return '\n'
   }
 
+  /** Which family of verbs this backend handles. Surface backends override to `'surface'`.
+   *  Only used in the `VERBS_STRIPPED` warning message — does not gate dispatch. */
+  protected handlerKind(): 'compute' | 'surface' {
+    return 'compute'
+  }
+
+  /** Split the composition's verbs into the bucket this backend handles vs. the
+   *  bucket it strips. Default: compute-handled, surface-stripped. Surface
+   *  backends flip to surface-handled, compute-stripped. Neither bucket ever
+   *  includes the `COMPOSE` grammar verb — nested compositions are flattened
+   *  by callers before `resolve()`. */
+  protected targetVerbs(c: Composition): { handled: Verb[]; stripped: Verb[] } {
+    const { compute, surface } = partitionVerbs(c)
+    return { handled: compute, stripped: surface }
+  }
+
   resolve(composition: Composition): ResolverOutput {
     const warnings: ResolverWarning[] = []
-    const { compute, surface } = partitionVerbs(composition)
+    const { handled, stripped } = this.targetVerbs(composition)
 
-    if (surface.length > 0) {
+    if (stripped.length > 0) {
+      const kind = this.handlerKind()
       warnings.push({
-        code: 'SURFACE_VERBS_STRIPPED',
-        message: `${surface.length} surface verb(s) removed — compute resolver only handles verbs 1-20`,
+        code: 'VERBS_STRIPPED',
+        message: `${stripped.length} non-handled verb(s) removed — ${this.label} resolver handles only ${kind} verbs`,
       })
     }
 
@@ -89,8 +115,8 @@ export abstract class BaseResolver {
       verbById: (id: string) => byId.get(id),
     }
 
-    for (const verb of compute) {
-      const handler = this.handlers[verb.verb as ComputeVerb]
+    for (const verb of handled) {
+      const handler = this.handlers[verb.verb as ComputeVerb | SurfaceVerb]
       if (!handler) {
         warnings.push({
           code: 'VERB_UNHANDLED',
