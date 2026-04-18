@@ -44,6 +44,9 @@ describe('resolve() target dispatch', () => {
     )
   })
 
+  // Intentional pin: this snapshot breaks the day someone adds an 8th backend,
+  // forcing an explicit decision + README + SOLUTION.md update. Relax to
+  // `toContain(...)` only if the registry becomes dynamically-populated.
   it('exposes all 7 registered backends via availableTargets()', () => {
     expect(availableTargets()).toEqual([
       'python',
