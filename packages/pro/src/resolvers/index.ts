@@ -35,11 +35,15 @@ registerResolver('sql-sqlite', () => new SqliteBackend())
 registerResolver('sql-mysql', () => new MysqlBackend())
 registerResolver('react', () => new ReactBackend())
 
-/** Normalise a caller-supplied target into a compute label. */
+/** Normalise a caller-supplied target into a resolver label (compute or surface). */
 function labelOf(target: ResolveTarget): string {
   if (typeof target === 'string') return target
+  if (target.compute && target.surface) {
+    throw new Error('resolve(): ambiguous target — pass a specific label string')
+  }
   if (target.compute) return target.compute
-  throw new Error('resolve(): target has no compute tag')
+  if (target.surface) return target.surface
+  throw new Error('resolve(): target has no compute or surface tag')
 }
 
 /**
