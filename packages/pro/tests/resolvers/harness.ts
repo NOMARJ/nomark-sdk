@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { resolve as resolveComposition } from '../../src/resolvers/index.js'
 import { FIXTURE_COMPOSITION } from './__fixtures__/composition.js'
+import { FIXTURE_SURFACE_COMPOSITION } from './__fixtures__/surface-composition.js'
+import type { Composition } from '../../src/resolvers/core/ir.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURE_ROOT = path.join(__dirname, '__fixtures__', 'expected')
@@ -43,10 +45,15 @@ export async function loadFixture(label: FixtureLabel): Promise<FixtureFile[]> {
   return files.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+function compositionFor(label: FixtureLabel): Composition {
+  const surfaceLabels: readonly string[] = SURFACE_LABELS
+  return surfaceLabels.includes(label) ? FIXTURE_SURFACE_COMPOSITION : FIXTURE_COMPOSITION
+}
+
 export function testBackend(label: FixtureLabel): void {
   it(`${label} backend matches fixture`, async () => {
     const expected = await loadFixture(label)
-    const output = resolveComposition(FIXTURE_COMPOSITION, label)
+    const output = resolveComposition(compositionFor(label), label)
 
     expect(output.label).toBe(label)
     expect(output.files.map((f) => path.basename(f.path)).sort()).toEqual(

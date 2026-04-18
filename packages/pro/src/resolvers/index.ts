@@ -16,6 +16,7 @@ import { TypeScriptBackend } from './typescript/backend.js'
 import { PythonBackend } from './python/backend.js'
 import { RustBackend } from './rust/backend.js'
 import { PostgresBackend, SqliteBackend, MysqlBackend } from './sql/backend.js'
+import { ReactBackend } from './react/backend.js'
 
 export type ResolveTarget = NonNullable<TargetTag['compute']> | TargetTag
 
@@ -32,6 +33,7 @@ registerResolver('rust', () => new RustBackend())
 registerResolver('sql-postgres', () => new PostgresBackend())
 registerResolver('sql-sqlite', () => new SqliteBackend())
 registerResolver('sql-mysql', () => new MysqlBackend())
+registerResolver('react', () => new ReactBackend())
 
 /** Normalise a caller-supplied target into a compute label. */
 function labelOf(target: ResolveTarget): string {
