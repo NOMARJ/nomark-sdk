@@ -98,6 +98,31 @@ Built-in schemas for `creative`, `decision`, and `communication` request types. 
 
 Multi-user team management with shared preference layers and Supabase-backed sync.
 
+### Intents Resolver
+
+Compute-side code emitters for the NOMARK Intents spec. Takes a `ComposedUnit`-compatible composition and produces executable source for one or more target languages.
+
+```typescript
+import { resolve, resolveAll } from '@nomark-ai/pro'
+import type { Composition } from '@nomark-ai/pro'
+
+const myEtl: Composition = { /* compose({...}) output from @nomark/intents */ }
+
+// Single target
+const ts = resolve(myEtl, 'typescript')
+// ts.files[0].content is runnable TypeScript
+
+// Multiple targets with a shipping manifest
+const manifest = resolveAll(myEtl, ['typescript', 'python', 'rust'], {
+  basePath: './out',
+})
+// manifest.targets[i].files = [{ path, bytes }, ...], .warnings = [string, ...]
+```
+
+Registered target labels: `typescript`, `python`, `rust`, `sql-postgres`, `sql-sqlite`, `sql-mysql`. Each backend handles the 7 compute verbs exercised by the canonical fixture (FETCH, VALIDATE, MAP, FILTER, REDUCE, PERSIST, EMIT); other compute verbs surface as `VERB_UNHANDLED` warnings. Surface verbs (MONITOR, DISPLAY, etc.) are stripped with a count warning — a separate surface-resolver pass consumes those.
+
+SQL backends emit a fixed-spec warning for every EMIT verb ("cannot be expressed in SQL compute — add a host layer to drive this step") plus a terse comment in the generated `.sql`. Register additional backends via `registerResolver(label, () => new MyBackend())`.
+
 ## License
 
 Business Source License 1.1

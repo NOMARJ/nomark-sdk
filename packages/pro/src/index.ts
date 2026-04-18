@@ -31,6 +31,11 @@ export {
   type ResolverOutput, type ResolverFile, type ResolverWarning,
   mapExpr, reduceExpr, partitionVerbs, isSurfaceVerb,
 } from './resolvers/index.js'
+export {
+  resolveAll,
+  type Manifest, type ManifestFileEntry, type ManifestTargetEntry,
+  type ResolveAllOptions,
+} from './resolvers/manifest.js'
 
 // --- Engine configuration ---
 
