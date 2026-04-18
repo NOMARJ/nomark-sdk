@@ -22,6 +22,16 @@ export * from './critical-gate.js'
 export { createTeamSync, type TeamSync, type TeamSyncConfig } from './team-sync.js'
 export { createTeam, inviteMember, removeMember, setTeamPreference, type TeamAdminConfig } from './team-admin.js'
 
+// --- Intent resolvers (compute-side code emitters) ---
+export {
+  resolve, registerResolver, availableTargets, BaseResolver,
+  type ResolveTarget, type Composition, type TargetTag, type Verb, type VerbName,
+  type ComputeVerb, type SurfaceVerb, type EntityDecl, type EntityRole,
+  type VerbHandler, type ResolverContext,
+  type ResolverOutput, type ResolverFile, type ResolverWarning,
+  mapExpr, reduceExpr, partitionVerbs, isSurfaceVerb,
+} from './resolvers/index.js'
+
 // --- Engine configuration ---
 
 export type EngineConfig = ResolverConfig & {

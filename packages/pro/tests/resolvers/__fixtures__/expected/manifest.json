@@ -1,0 +1,77 @@
+{
+  "composition": "daily_fund_flow_etl",
+  "version": "0.4.0",
+  "generated_at": "2026-04-16T20:59:12.079Z",
+  "targets": [
+    {
+      "label": "typescript",
+      "files": [
+        {
+          "path": "/mnt/user-data/outputs/typescript/daily_fund_flow_etl.ts",
+          "bytes": 7030
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "label": "python",
+      "files": [
+        {
+          "path": "/mnt/user-data/outputs/python/daily_fund_flow_etl.py",
+          "bytes": 7072
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "label": "rust",
+      "files": [
+        {
+          "path": "/mnt/user-data/outputs/rust/daily_fund_flow_etl.rs",
+          "bytes": 11308
+        },
+        {
+          "path": "/mnt/user-data/outputs/rust/Cargo.toml",
+          "bytes": 497
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "label": "sql-postgres",
+      "files": [
+        {
+          "path": "/mnt/user-data/outputs/sql-postgres/daily_fund_flow_etl.sql",
+          "bytes": 1064
+        }
+      ],
+      "warnings": [
+        "verb EMIT (notify_done) cannot be expressed in SQL compute — add a host layer to drive this step"
+      ]
+    },
+    {
+      "label": "sql-sqlite",
+      "files": [
+        {
+          "path": "/mnt/user-data/outputs/sql-sqlite/daily_fund_flow_etl.sql",
+          "bytes": 1061
+        }
+      ],
+      "warnings": [
+        "verb EMIT (notify_done) cannot be expressed in SQL compute — add a host layer to drive this step"
+      ]
+    },
+    {
+      "label": "sql-mysql",
+      "files": [
+        {
+          "path": "/mnt/user-data/outputs/sql-mysql/daily_fund_flow_etl.sql",
+          "bytes": 1139
+        }
+      ],
+      "warnings": [
+        "verb EMIT (notify_done) cannot be expressed in SQL compute — add a host layer to drive this step"
+      ]
+    }
+  ]
+}
