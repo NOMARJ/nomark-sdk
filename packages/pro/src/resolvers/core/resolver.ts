@@ -59,6 +59,16 @@ export abstract class BaseResolver {
     return []
   }
 
+  /**
+   * Separator inserted between per-verb handler outputs when composing the body.
+   * Default `'\n'` — combined with each handler's single trailing newline, yields
+   * one blank line between verbs. Python overrides to `'\n\n'` to match PEP 8
+   * two-blank-line convention between top-level async defs.
+   */
+  protected bodySeparator(): string {
+    return '\n'
+  }
+
   resolve(composition: Composition): ResolverOutput {
     const warnings: ResolverWarning[] = []
     const { compute, surface } = partitionVerbs(composition)
@@ -92,7 +102,7 @@ export abstract class BaseResolver {
       emitted.push(handler(verb, ctx))
     }
 
-    const body = emitted.join('\n')
+    const body = emitted.join(this.bodySeparator())
     const content = [this.emitPreamble(composition), body, this.emitPostamble(composition)]
       .filter(s => s.length > 0)
       .join('\n')

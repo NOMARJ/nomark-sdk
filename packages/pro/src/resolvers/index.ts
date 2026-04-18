@@ -12,6 +12,10 @@
 
 import { BaseResolver, type ResolverOutput } from './core/resolver.js'
 import type { Composition, TargetTag } from './core/ir.js'
+import { TypeScriptBackend } from './typescript/backend.js'
+import { PythonBackend } from './python/backend.js'
+import { RustBackend } from './rust/backend.js'
+import { PostgresBackend, SqliteBackend, MysqlBackend } from './sql/backend.js'
 
 export type ResolveTarget = NonNullable<TargetTag['compute']> | TargetTag
 
@@ -21,6 +25,13 @@ const RESOLVERS = new Map<string, () => BaseResolver>()
 export function registerResolver(label: string, factory: () => BaseResolver): void {
   RESOLVERS.set(label, factory)
 }
+
+registerResolver('typescript', () => new TypeScriptBackend())
+registerResolver('python', () => new PythonBackend())
+registerResolver('rust', () => new RustBackend())
+registerResolver('sql-postgres', () => new PostgresBackend())
+registerResolver('sql-sqlite', () => new SqliteBackend())
+registerResolver('sql-mysql', () => new MysqlBackend())
 
 /** Normalise a caller-supplied target into a compute label. */
 function labelOf(target: ResolveTarget): string {

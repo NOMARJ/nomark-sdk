@@ -1,0 +1,271 @@
+import { BaseResolver, type VerbHandler } from '../core/resolver.js'
+import { partitionVerbs, type Composition, type ComputeVerb, type Verb } from '../core/ir.js'
+
+type FetchParams = { source?: { type?: string; config?: { url?: string } } }
+type ValidateParams = {
+  rules?: unknown[]
+  on_fail?: { action?: string; target?: string }
+}
+type MapParams = { expression?: string; project?: Record<string, string> }
+type FilterParams = { predicate?: string }
+type ReduceParams = { expression?: string }
+type PersistParams = { sink?: { type?: string; config?: { table?: string } } }
+type EmitParams = { target?: { config?: { url?: string; channel?: string } } }
+
+const PREAMBLE_HELPERS = `from __future__ import annotations
+import asyncio
+import dataclasses
+import json
+import os
+import random
+import re
+import time
+import uuid
+from typing import Any, Callable, Dict, List, Optional
+@dataclasses.dataclass
+class Ctx:
+    input: Any = None
+    values: Dict[str, Any] = dataclasses.field(default_factory=dict)
+    receipts: Dict[str, Dict[str, Any]] = dataclasses.field(default_factory=dict)
+async def _retry(fn: Callable[[], Any], max_attempts: int, delay_ms: int,
+                 backoff: str = "exponential", jitter: bool = False) -> Any:
+    last_err: Optional[BaseException] = None
+    for attempt in range(max_attempts):
+        try:
+            return await fn()
+        except Exception as e:
+            last_err = e
+        base = delay_ms * (2 ** attempt) if backoff == "exponential" else delay_ms * (attempt + 1)
+        wait = base * (0.5 + random.random()) if jitter else base
+        await asyncio.sleep(wait / 1000.0)
+    raise last_err  # type: ignore[misc]
+def _receipt(sink: str, reversible: bool = True) -> Dict[str, Any]:
+    return {
+        "id": str(uuid.uuid4()),
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "sink": sink,
+        "reversible": reversible,
+    }
+def _predicate(expr: str, row: Any) -> bool:
+    """Opaque expression evaluator — spec §3.1. Resolver chose Python eval."""
+    return bool(eval(expr, {"__builtins__": {}}, {"row": row, "r": row}))
+def _project(expr: str, input: Any) -> Any:
+    return eval(expr, {"__builtins__": {"len": len, "sum": sum, "min": min, "max": max}},
+                {"input": input, "row": input, "r": input})
+def _reduce(expr: str, items: List[Any], initial: Any) -> Any:
+    m = re.match(r"^group_by\\(([^)]+)\\)\\.(sum|count|avg|min|max)\\(([^)]*)\\)$", expr)
+    if m:
+        key_expr, op, field = m.group(1), m.group(2), m.group(3)
+        groups: Dict[Any, List[Any]] = {}
+        for row in items:
+            k = _project(key_expr, row)
+            groups.setdefault(k, []).append(row)
+        out: Dict[str, Any] = {}
+        for k, rows in groups.items():
+            if op == "count":
+                out[str(k)] = len(rows)
+                continue
+            vals = [_project(field, r) for r in rows]
+            if op == "sum": out[str(k)] = sum(vals)
+            elif op == "avg": out[str(k)] = sum(vals) / len(vals)
+            elif op == "min": out[str(k)] = min(vals)
+            elif op == "max": out[str(k)] = max(vals)
+        return out
+    m2 = re.match(r"^(sum|count|avg|min|max)\\(([^)]*)\\)$", expr)
+    if m2:
+        op, field = m2.group(1), m2.group(2)
+        if op == "count": return len(items)
+        vals = [_project(field, r) for r in items]
+        if op == "sum": return sum(vals)
+        if op == "avg": return sum(vals) / len(vals) if vals else 0
+        if op == "min": return min(vals) if vals else None
+        if op == "max": return max(vals) if vals else None
+    # generic lambda fallback: expr must name 'acc' and 'row'
+    acc = initial
+    for row in items:
+        acc = eval(expr, {"__builtins__": {}}, {"acc": acc, "row": row})
+    return acc`
+
+/** Python-dict-style literal for rules array. `json.dumps` style: spaces after `:` and `,`. */
+function pyLit(v: unknown): string {
+  if (v === null) return 'None'
+  if (typeof v === 'string') return JSON.stringify(v)
+  if (typeof v === 'number') return String(v)
+  if (typeof v === 'boolean') return v ? 'True' : 'False'
+  if (Array.isArray(v)) return `[${v.map(pyLit).join(', ')}]`
+  if (typeof v === 'object') {
+    const pairs = Object.entries(v as Record<string, unknown>).map(
+      ([k, val]) => `${JSON.stringify(k)}: ${pyLit(val)}`,
+    )
+    return `{${pairs.join(', ')}}`
+  }
+  return 'None'
+}
+
+export class PythonBackend extends BaseResolver {
+  readonly label = 'python'
+
+  protected handlers: Partial<Record<ComputeVerb, VerbHandler>> = {
+    FETCH: (v) => this.emitFetch(v),
+    VALIDATE: (v) => this.emitValidate(v),
+    MAP: (v) => this.emitMap(v),
+    FILTER: (v) => this.emitFilter(v),
+    REDUCE: (v) => this.emitReduce(v),
+    PERSIST: (v) => this.emitPersist(v),
+    EMIT: (v) => this.emitEmit(v),
+  }
+
+  protected override bodySeparator(): string {
+    return '\n\n'
+  }
+
+  protected rootFileName(c: Composition): string {
+    return `${c.name}.py`
+  }
+
+  protected emitPreamble(c: Composition): string {
+    const header = [
+      '"""',
+      'Generated by NOMARK Intents resolver (target: python).',
+      `Composition: ${c.name} v${c.version}`,
+      c.description ?? '',
+      '"""',
+    ].join('\n')
+    return `${header}\n${PREAMBLE_HELPERS}`
+  }
+
+  protected emitPostamble(c: Composition): string {
+    const { compute } = partitionVerbs(c)
+    const first = compute[0]?.id ?? 'start'
+    const cases = compute
+      .map((v, i) => {
+        const next = compute[i + 1]
+        const middleLine = next
+          ? `await _execute(${JSON.stringify(next.id)}, ctx)`
+          : 'return'
+        return `    if vid == ${JSON.stringify(v.id)}:
+        ctx.values[${JSON.stringify(v.id)}] = await ${v.id}(ctx)
+        ${middleLine}
+        return`
+      })
+      .join('\n')
+
+    return `async def _execute(vid: str, ctx: Ctx) -> None:
+${cases}
+    raise ValueError(f"unknown verb id: {vid}")
+
+async def run(input: Any = None) -> Ctx:
+    ctx = Ctx(input=input)
+    await _execute(${JSON.stringify(first)}, ctx)
+    return ctx
+
+
+if __name__ == "__main__":
+    asyncio.run(run())
+`
+  }
+
+  private emitFetch(v: Verb): string {
+    const p = (v.params ?? {}) as FetchParams
+    const url = p.source?.config?.url ?? ''
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    import httpx
+    async with httpx.AsyncClient() as client:
+        r = await client.request("GET", ${JSON.stringify(url)}, json=None)
+        r.raise_for_status()
+        return r.json()
+`
+  }
+
+  private emitValidate(v: Verb): string {
+    const p = (v.params ?? {}) as ValidateParams
+    const rules = pyLit(p.rules ?? [])
+    const action = p.on_fail?.action ?? 'flag'
+    const routeTarget = p.on_fail?.target ?? ''
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    input = ctx.input
+    rules = ${rules}
+    validator = globals().get("__validator__")
+    ok = validator(rules, input) if validator else True
+    if not ok:
+        action = ${JSON.stringify(action)}
+        if action == "reject":
+            raise ValueError("VALIDATE ${v.id} failed")
+        if action == "route":
+            await _execute(${JSON.stringify(routeTarget)}, ctx)
+            return ctx.values.get(${JSON.stringify(routeTarget)})
+        if action == "flag":
+            return {**(input if isinstance(input, dict) else {"value": input}), "__flagged": True}
+    return input
+`
+  }
+
+  private emitMap(v: Verb): string {
+    const p = (v.params ?? {}) as MapParams
+    const expr = p.expression ?? this.projectToExpression(p.project)
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    input = ctx.input
+    return _project(${JSON.stringify(expr)}, input)
+`
+  }
+
+  private projectToExpression(project: Record<string, string> | undefined): string {
+    if (!project) return 'row'
+    const pairs = Object.entries(project).map(([k, e]) => `${k}: ${e}`)
+    return `{ ${pairs.join(', ')} }`
+  }
+
+  private emitFilter(v: Verb): string {
+    const p = (v.params ?? {}) as FilterParams
+    const pred = p.predicate ?? 'True'
+    return `async def ${v.id}(ctx: Ctx) -> List[Any]:
+    input = ctx.input or []
+    return [row for row in input if _predicate(${JSON.stringify(pred)}, row)]
+`
+  }
+
+  private emitReduce(v: Verb): string {
+    const p = (v.params ?? {}) as ReduceParams
+    const expr = p.expression ?? 'row'
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    input = ctx.input or []
+    return _reduce(${JSON.stringify(expr)}, input, None)
+`
+  }
+
+  private emitPersist(v: Verb): string {
+    const p = (v.params ?? {}) as PersistParams
+    const table = p.sink?.config?.table ?? 'unknown_table'
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    input = ctx.input
+    import asyncpg
+    conn = await asyncpg.connect(os.environ.get("DATABASE_URL", ""))
+    try:
+        rows = input if isinstance(input, list) else [input]
+        for row in rows:
+            keys = list(row.keys())
+            placeholders = ", ".join(f"$" + str(i+1) for i in range(len(keys)))
+            cols = ", ".join(keys)
+            sql = f'INSERT INTO ${table} ({cols}) VALUES ({placeholders})'
+            await conn.execute(sql, *[row[k] for k in keys])
+    finally:
+        await conn.close()
+    receipt = _receipt("sql:${table}")
+    ctx.receipts[${JSON.stringify(v.id)}] = receipt
+    return receipt
+`
+  }
+
+  private emitEmit(v: Verb): string {
+    const p = (v.params ?? {}) as EmitParams
+    const url = p.target?.config?.url ?? ''
+    const channel = p.target?.config?.channel ?? ''
+    return `async def ${v.id}(ctx: Ctx) -> None:
+    payload = ctx.values.get(${JSON.stringify(v.id)}, ctx.input)
+    import httpx
+    async with httpx.AsyncClient() as client:
+        body = {"channel": ${JSON.stringify(channel)}, "text": payload if isinstance(payload, str) else json.dumps(payload)}
+        await client.post(${JSON.stringify(url)}, json=body)
+`
+  }
+}
