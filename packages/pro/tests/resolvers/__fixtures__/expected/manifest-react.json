@@ -1,0 +1,17 @@
+{
+  "composition": "fund_flow_dashboard",
+  "version": "0.4.0",
+  "generated_at": "2026-04-16T20:59:12.079Z",
+  "targets": [
+    {
+      "label": "react",
+      "files": [
+        {
+          "path": "/mnt/user-data/outputs/react/Dashboard.tsx",
+          "bytes": 2006
+        }
+      ],
+      "warnings": []
+    }
+  ]
+}
