@@ -28,7 +28,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@nomark-ai/engine": "*"
+    "@nomark-ai/engine": "^0.2.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
