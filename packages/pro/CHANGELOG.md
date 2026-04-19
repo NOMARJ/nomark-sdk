@@ -20,7 +20,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Compatibility
 - Minor bump — no breaking changes to the 0.1.x public API.
-- Requires `@nomark-ai/engine >= 0.1.0` (unchanged).
+- `dependencies.@nomark-ai/engine` pinned to `^0.2.1` (tightened from `"*"` in 0.1.x for install stability).
+- `peerDependencies.@nomark-ai/engine` unchanged: `>=0.1.0`.
 
 ## 0.1.2
 
