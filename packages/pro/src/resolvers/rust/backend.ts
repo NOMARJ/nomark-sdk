@@ -8,6 +8,9 @@ type FilterParams = { predicate?: string }
 type ReduceParams = { expression?: string }
 type PersistParams = { sink?: { config?: { table?: string } } }
 type EmitParams = { target?: { config?: { url?: string; channel?: string } } }
+type EnrichParams = { with?: Record<string, unknown> }
+type DeleteParams = { sink?: { config?: { table?: string } }; predicate?: string }
+type StreamParams = { source?: { config?: { table?: string } }; batch_size?: number }
 
 const PREAMBLE_HELPERS = `use std::collections::HashMap;
 use std::time::Duration as StdDuration;
@@ -185,6 +188,9 @@ export class RustBackend extends BaseResolver {
     REDUCE: (v) => this.emitReduce(v),
     PERSIST: (v) => this.emitPersist(v),
     EMIT: (v) => this.emitEmit(v),
+    ENRICH: (v) => this.emitEnrich(v),
+    DELETE: (v) => this.emitDelete(v),
+    STREAM: (v) => this.emitStream(v),
   }
 
   protected rootFileName(c: Composition): string {
@@ -330,6 +336,54 @@ pub async fn run(input: Value) -> Result<Ctx> {
     let receipt = new_receipt("sql:${table}", true);
     ctx.receipts.insert(${JSON.stringify(v.id)}.to_string(), receipt.clone());
     Ok(json!({ "id": receipt.id, "timestamp": receipt.timestamp, "sink": receipt.sink, "reversible": receipt.reversible }))
+}
+`
+  }
+
+  private emitEnrich(v: Verb): string {
+    const p = (v.params ?? {}) as EnrichParams
+    const extras = JSON.stringify(p.with ?? {})
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    let input = ctx.input.clone();
+    let extras: Value = serde_json::from_str(${JSON.stringify(extras)})?;
+    let merge = |row: &Value| -> Value {
+        let mut m = row.as_object().cloned().unwrap_or_default();
+        if let Some(o) = extras.as_object() { for (k, v) in o { m.insert(k.clone(), v.clone()); } }
+        Value::Object(m)
+    };
+    Ok(if input.is_array() {
+        Value::Array(input.as_array().unwrap().iter().map(merge).collect())
+    } else {
+        merge(&input)
+    })
+}
+`
+  }
+
+  private emitDelete(v: Verb): string {
+    const p = (v.params ?? {}) as DeleteParams
+    const table = p.sink?.config?.table ?? 'unknown_table'
+    const predicate = p.predicate ?? 'TRUE'
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    {
+        let pool = sqlx::postgres::PgPoolOptions::new().connect(&std::env::var("DATABASE_URL")?).await?;
+        sqlx::query("DELETE FROM ${table} WHERE ${predicate}").execute(&pool).await?;
+    }
+    let receipt = new_receipt("sql:${table}", false);
+    ctx.receipts.insert(${JSON.stringify(v.id)}.to_string(), receipt.clone());
+    Ok(json!({ "id": receipt.id, "timestamp": receipt.timestamp, "sink": receipt.sink, "reversible": receipt.reversible }))
+}
+`
+  }
+
+  private emitStream(v: Verb): string {
+    const p = (v.params ?? {}) as StreamParams
+    const table = p.source?.config?.table ?? 'unknown_table'
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    // STREAM: host should adapt this to async iteration over a real cursor.
+    let pool = sqlx::postgres::PgPoolOptions::new().connect(&std::env::var("DATABASE_URL")?).await?;
+    let rows: Vec<Value> = sqlx::query_scalar::<_, Value>("SELECT row_to_json(t) FROM ${table} t").fetch_all(&pool).await?;
+    Ok(Value::Array(rows))
 }
 `
   }

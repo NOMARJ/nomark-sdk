@@ -11,6 +11,9 @@ type FilterParams = { predicate?: string }
 type ReduceParams = { expression?: string }
 type PersistParams = { sink?: { type?: string; config?: { table?: string } } }
 type EmitParams = { target?: { config?: { url?: string; channel?: string } } }
+type EnrichParams = { with?: Record<string, unknown> }
+type DeleteParams = { sink?: { config?: { table?: string } }; predicate?: string }
+type StreamParams = { source?: { config?: { table?: string } }; batch_size?: number }
 
 const PREAMBLE_HELPERS = `from __future__ import annotations
 import asyncio
@@ -113,6 +116,9 @@ export class PythonBackend extends BaseResolver {
     REDUCE: (v) => this.emitReduce(v),
     PERSIST: (v) => this.emitPersist(v),
     EMIT: (v) => this.emitEmit(v),
+    ENRICH: (v) => this.emitEnrich(v),
+    DELETE: (v) => this.emitDelete(v),
+    STREAM: (v) => this.emitStream(v),
   }
 
   protected override bodySeparator(): string {
@@ -253,6 +259,50 @@ if __name__ == "__main__":
     receipt = _receipt("sql:${table}")
     ctx.receipts[${JSON.stringify(v.id)}] = receipt
     return receipt
+`
+  }
+
+  private emitEnrich(v: Verb): string {
+    const p = (v.params ?? {}) as EnrichParams
+    const extras = pyLit(p.with ?? {})
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    input = ctx.input
+    extras = ${extras}
+    if isinstance(input, list):
+        return [{**(r if isinstance(r, dict) else {"value": r}), **extras} for r in input]
+    return {**(input if isinstance(input, dict) else {"value": input}), **extras}
+`
+  }
+
+  private emitDelete(v: Verb): string {
+    const p = (v.params ?? {}) as DeleteParams
+    const table = p.sink?.config?.table ?? 'unknown_table'
+    const predicate = p.predicate ?? 'TRUE'
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    import asyncpg
+    conn = await asyncpg.connect(os.environ.get("DATABASE_URL", ""))
+    try:
+        await conn.execute('DELETE FROM ${table} WHERE ${predicate}')
+    finally:
+        await conn.close()
+    receipt = _receipt("sql:${table}", False)
+    ctx.receipts[${JSON.stringify(v.id)}] = receipt
+    return receipt
+`
+  }
+
+  private emitStream(v: Verb): string {
+    const p = (v.params ?? {}) as StreamParams
+    const table = p.source?.config?.table ?? 'unknown_table'
+    return `async def ${v.id}(ctx: Ctx) -> List[Any]:
+    # STREAM: host should adapt this to async iteration over a real cursor.
+    import asyncpg
+    conn = await asyncpg.connect(os.environ.get("DATABASE_URL", ""))
+    try:
+        rows = await conn.fetch('SELECT * FROM ${table}')
+        return [dict(r) for r in rows]
+    finally:
+        await conn.close()
 `
   }
 

@@ -11,6 +11,9 @@ type PersistParams = {
   sink?: { config?: { table?: string } }
   mode?: string
 }
+type EnrichParams = { with?: Record<string, unknown> }
+type DeleteParams = { sink?: { config?: { table?: string } }; predicate?: string }
+type StreamParams = { source?: { config?: { table?: string } }; batch_size?: number }
 
 /** Fixed-spec warning emitted for every EMIT verb in SQL output.
  *  Matches the manifest fixture byte-for-byte — do not rephrase. */
@@ -70,6 +73,9 @@ abstract class SqlBase extends BaseResolver {
       ctx.warn(SQL_EMIT_WARNING(v.id))
       return this.emitEmit(v)
     },
+    ENRICH: (v) => this.emitEnrich(v),
+    DELETE: (v) => this.emitDelete(v),
+    STREAM: (v) => this.emitStream(v),
   }
 
   protected override bodySeparator(): string {
@@ -141,6 +147,42 @@ INSERT INTO ${this.dialect.quote(table)} (${this.dialect.quote('*unknown_columns
 
   private emitEmit(v: Verb): string {
     return `-- EMIT (${v.id}) not expressible as SQL. Host runtime required.`
+  }
+
+  private emitEnrich(v: Verb): string {
+    const p = (v.params ?? {}) as EnrichParams
+    const extras = Object.entries(p.with ?? {})
+      .map(([alias, expr]) => `${this.sqlLiteral(expr)} AS ${this.dialect.quote(alias)}`)
+      .join(', ')
+    const body = extras
+      ? `SELECT *, ${extras} FROM source`
+      : `SELECT * FROM source`
+    return `-- ENRICH ${v.id}\n${this.dialect.emitView(`v_${v.id}`, body)}`
+  }
+
+  private emitDelete(v: Verb): string {
+    const p = (v.params ?? {}) as DeleteParams
+    const table = p.sink?.config?.table ?? 'unknown_table'
+    const predicate = p.predicate ?? 'TRUE'
+    return `-- DELETE ${v.id}\nDELETE FROM ${this.dialect.quote(table)} WHERE ${predicate};`
+  }
+
+  private emitStream(v: Verb): string {
+    const p = (v.params ?? {}) as StreamParams
+    const table = p.source?.config?.table ?? 'unknown_table'
+    return `-- STREAM ${v.id}: cursor/iteration handled by host.\nSELECT * FROM ${this.dialect.quote(table)};`
+  }
+
+  /** Render an ENRICH `with` value as a SQL literal/expression.
+   *  Strings are passed through verbatim (treated as SQL expressions like `now()`);
+   *  numbers/booleans are emitted as literals. Mirrors how the procedural backends
+   *  splat the dict into the row map. */
+  private sqlLiteral(v: unknown): string {
+    if (typeof v === 'string') return v
+    if (typeof v === 'number') return String(v)
+    if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE'
+    if (v === null) return 'NULL'
+    return `'${JSON.stringify(v).replace(/'/g, "''")}'`
   }
 }
 
