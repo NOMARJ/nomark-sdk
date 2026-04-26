@@ -19,7 +19,7 @@ export const COMPUTE_LABELS = [
   'sql-mysql',
 ] as const
 
-export const SURFACE_LABELS = ['react'] as const
+export const SURFACE_LABELS = ['react', 'vue', 'svelte'] as const
 
 export const FIXTURE_LABELS = [...COMPUTE_LABELS, ...SURFACE_LABELS] as const
 

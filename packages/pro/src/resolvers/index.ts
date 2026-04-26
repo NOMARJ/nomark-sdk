@@ -17,6 +17,8 @@ import { PythonBackend } from './python/backend.js'
 import { RustBackend } from './rust/backend.js'
 import { PostgresBackend, SqliteBackend, MysqlBackend } from './sql/backend.js'
 import { ReactBackend } from './react/backend.js'
+import { VueBackend } from './vue/backend.js'
+import { SvelteBackend } from './svelte/backend.js'
 
 export type ResolveTarget = NonNullable<TargetTag['compute']> | TargetTag
 
@@ -34,6 +36,8 @@ registerResolver('sql-postgres', () => new PostgresBackend())
 registerResolver('sql-sqlite', () => new SqliteBackend())
 registerResolver('sql-mysql', () => new MysqlBackend())
 registerResolver('react', () => new ReactBackend())
+registerResolver('vue', () => new VueBackend())
+registerResolver('svelte', () => new SvelteBackend())
 
 /** Normalise a caller-supplied target into a resolver label (compute or surface). */
 function labelOf(target: ResolveTarget): string {

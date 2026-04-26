@@ -101,4 +101,24 @@ describe('resolveAll', () => {
     expect(react?.warnings).toEqual([])
     expect(react?.files[0]?.path).toBe('react/Dashboard.tsx')
   })
+
+  it('produces three surface target entries for react+vue+svelte', () => {
+    const manifest = resolveAll(FIXTURE_SURFACE_COMPOSITION, ['react', 'vue', 'svelte'], {
+      clock: FIXTURE_CLOCK,
+    })
+    expect(manifest.targets).toHaveLength(3)
+    expect(manifest.targets.map((t) => t.label)).toEqual(['react', 'vue', 'svelte'])
+    expect(manifest.targets.find((t) => t.label === 'react')?.files[0]?.path).toBe(
+      'react/Dashboard.tsx',
+    )
+    expect(manifest.targets.find((t) => t.label === 'vue')?.files[0]?.path).toBe(
+      'vue/Dashboard.vue',
+    )
+    expect(manifest.targets.find((t) => t.label === 'svelte')?.files[0]?.path).toBe(
+      'svelte/Dashboard.svelte',
+    )
+    for (const target of manifest.targets) {
+      expect(target.warnings).toEqual([])
+    }
+  })
 })
