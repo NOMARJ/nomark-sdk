@@ -23,6 +23,26 @@ export const SQL_EMIT_WARNING = (verbId: string): ResolverWarning => ({
   verb_id: verbId,
 })
 
+/** Fixed-spec warnings for resilience verbs. SQL has no native retry,
+ *  receipt-tracking, or error-routing — host runtime required. */
+const SQL_RETRY_WARNING = (verbId: string): ResolverWarning => ({
+  code: 'VERB_UNEXPRESSIBLE_IN_SQL',
+  message: `verb RETRY (${verbId}) cannot retry in SQL compute — host required`,
+  verb_id: verbId,
+})
+
+const SQL_COMPENSATE_WARNING = (verbId: string): ResolverWarning => ({
+  code: 'VERB_UNEXPRESSIBLE_IN_SQL',
+  message: `verb COMPENSATE (${verbId}) requires runtime receipt tracking — host required`,
+  verb_id: verbId,
+})
+
+const SQL_ERROR_WARNING = (verbId: string): ResolverWarning => ({
+  code: 'VERB_UNEXPRESSIBLE_IN_SQL',
+  message: `verb ERROR (${verbId}) requires error routing in host runtime`,
+  verb_id: verbId,
+})
+
 type DialectConfig = {
   label: string
   headerTarget: string
@@ -76,6 +96,18 @@ abstract class SqlBase extends BaseResolver {
     ENRICH: (v) => this.emitEnrich(v),
     DELETE: (v) => this.emitDelete(v),
     STREAM: (v) => this.emitStream(v),
+    RETRY: (v, ctx) => {
+      ctx.warn(SQL_RETRY_WARNING(v.id))
+      return `-- RETRY ${v.id}: not expressible in SQL compute. Host runtime required.`
+    },
+    COMPENSATE: (v, ctx) => {
+      ctx.warn(SQL_COMPENSATE_WARNING(v.id))
+      return `-- COMPENSATE ${v.id}: receipt tracking + reverse op handled by host runtime.`
+    },
+    ERROR: (v, ctx) => {
+      ctx.warn(SQL_ERROR_WARNING(v.id))
+      return `-- ERROR ${v.id}: try/catch + handler routing handled by host runtime.`
+    },
   }
 
   protected override bodySeparator(): string {

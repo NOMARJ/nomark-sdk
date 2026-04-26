@@ -14,6 +14,24 @@ type EmitParams = { target?: { config?: { url?: string; channel?: string } } }
 type EnrichParams = { with?: Record<string, unknown> }
 type DeleteParams = { sink?: { config?: { table?: string } }; predicate?: string }
 type StreamParams = { source?: { config?: { table?: string } }; batch_size?: number }
+type InlineTarget = { verb: string; params?: Record<string, unknown> }
+type RetryParams = {
+  of?: InlineTarget
+  policy?: { max?: number; delay_ms?: number; backoff?: 'linear' | 'exponential'; jitter?: boolean }
+  error_route?: string
+}
+type CompensateParams = {
+  receipt_from?: string
+  reverse?: InlineTarget
+  idempotent?: boolean
+  reason?: string
+}
+type ErrorParams = {
+  of?: InlineTarget
+  catch?: string[]
+  handler?: InlineTarget
+  terminate_on_match?: boolean
+}
 
 const PREAMBLE_HELPERS = `from __future__ import annotations
 import asyncio
@@ -119,6 +137,9 @@ export class PythonBackend extends BaseResolver {
     ENRICH: (v) => this.emitEnrich(v),
     DELETE: (v) => this.emitDelete(v),
     STREAM: (v) => this.emitStream(v),
+    RETRY: (v) => this.emitRetry(v),
+    COMPENSATE: (v) => this.emitCompensate(v),
+    ERROR: (v) => this.emitError(v),
   }
 
   protected override bodySeparator(): string {
@@ -316,6 +337,116 @@ if __name__ == "__main__":
     async with httpx.AsyncClient() as client:
         body = {"channel": ${JSON.stringify(channel)}, "text": payload if isinstance(payload, str) else json.dumps(payload)}
         await client.post(${JSON.stringify(url)}, json=body)
+`
+  }
+
+  /** Inline a target verb's body into a parent (RETRY/COMPENSATE/ERROR) function.
+   *  Returns lines indented with `indent`. Caller wraps the indented block. */
+  private inlineBody(target: InlineTarget, indent: string = '    '): string {
+    const t = target ?? { verb: 'NOOP' }
+    switch (t.verb) {
+      case 'FETCH': {
+        const p = (t.params ?? {}) as FetchParams
+        const url = p.source?.config?.url ?? ''
+        return `${indent}import httpx
+${indent}async with httpx.AsyncClient() as client:
+${indent}    r = await client.request("GET", ${JSON.stringify(url)}, json=None)
+${indent}    r.raise_for_status()
+${indent}    return r.json()`
+      }
+      case 'VALIDATE': {
+        const p = (t.params ?? {}) as ValidateParams
+        const rules = pyLit(p.rules ?? [])
+        const action = p.on_fail?.action ?? 'flag'
+        return `${indent}rules = ${rules}
+${indent}validator = globals().get("__validator__")
+${indent}ok = validator(rules, ctx.input) if validator else True
+${indent}if not ok:
+${indent}    raise ValueError("VALIDATE failed (action=${action})")
+${indent}return ctx.input`
+      }
+      case 'DELETE': {
+        const p = (t.params ?? {}) as DeleteParams
+        const table = p.sink?.config?.table ?? 'unknown_table'
+        const predicate = p.predicate ?? 'TRUE'
+        return `${indent}import asyncpg
+${indent}conn = await asyncpg.connect(os.environ.get("DATABASE_URL", ""))
+${indent}try:
+${indent}    await conn.execute('DELETE FROM ${table} WHERE ${predicate}')
+${indent}finally:
+${indent}    await conn.close()
+${indent}return _receipt("sql:${table}", False)`
+      }
+      case 'EMIT': {
+        const p = (t.params ?? {}) as EmitParams
+        const url = p.target?.config?.url ?? ''
+        const channel = p.target?.config?.channel ?? ''
+        return `${indent}payload = ctx.input
+${indent}import httpx
+${indent}async with httpx.AsyncClient() as client:
+${indent}    body = {"channel": ${JSON.stringify(channel)}, "text": payload if isinstance(payload, str) else json.dumps(payload)}
+${indent}    await client.post(${JSON.stringify(url)}, json=body)
+${indent}return None`
+      }
+      default:
+        return `${indent}# inline target verb '${t.verb}' not specialised — host required
+${indent}return ctx.input`
+    }
+  }
+
+  private emitRetry(v: Verb): string {
+    const p = (v.params ?? {}) as RetryParams
+    const target = p.of ?? { verb: 'NOOP' }
+    const max = p.policy?.max ?? 3
+    const delay = p.policy?.delay_ms ?? 1000
+    const backoff = p.policy?.backoff ?? 'exponential'
+    const jitter = p.policy?.jitter ? 'True' : 'False'
+    const errorRoute = p.error_route
+    if (!errorRoute) {
+      return `async def ${v.id}(ctx: Ctx) -> Any:
+    async def _attempt():
+${this.inlineBody(target, '        ')}
+    return await _retry(_attempt, ${max}, ${delay}, ${JSON.stringify(backoff)}, ${jitter})
+`
+    }
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    async def _attempt():
+${this.inlineBody(target, '        ')}
+    try:
+        return await _retry(_attempt, ${max}, ${delay}, ${JSON.stringify(backoff)}, ${jitter})
+    except Exception:
+        await _execute(${JSON.stringify(errorRoute)}, ctx)
+        return ctx.values.get(${JSON.stringify(errorRoute)})
+`
+  }
+
+  private emitCompensate(v: Verb): string {
+    const p = (v.params ?? {}) as CompensateParams
+    const receiptFrom = p.receipt_from ?? ''
+    const reverse = p.reverse ?? { verb: 'NOOP' }
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    receipt = ctx.receipts.get(${JSON.stringify(receiptFrom)})
+    if not receipt:
+        raise RuntimeError("COMPENSATE ${v.id}: no receipt for ${receiptFrom}")
+    if not receipt.get("reversible"):
+        raise RuntimeError("COMPENSATE ${v.id}: receipt is non-reversible")
+${this.inlineBody(reverse, '    ')}
+`
+  }
+
+  private emitError(v: Verb): string {
+    const p = (v.params ?? {}) as ErrorParams
+    const target = p.of ?? { verb: 'NOOP' }
+    const catches = pyLit(p.catch ?? [])
+    const handler = p.handler ?? { verb: 'NOOP' }
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    try:
+${this.inlineBody(target, '        ')}
+    except Exception as e:
+        catches = ${catches}
+        if any(t == type(e).__name__ or t == getattr(e, "code", None) for t in catches):
+${this.inlineBody(handler, '            ')}
+        raise
 `
   }
 }

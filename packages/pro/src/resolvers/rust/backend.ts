@@ -11,6 +11,24 @@ type EmitParams = { target?: { config?: { url?: string; channel?: string } } }
 type EnrichParams = { with?: Record<string, unknown> }
 type DeleteParams = { sink?: { config?: { table?: string } }; predicate?: string }
 type StreamParams = { source?: { config?: { table?: string } }; batch_size?: number }
+type InlineTarget = { verb: string; params?: Record<string, unknown> }
+type RetryParams = {
+  of?: InlineTarget
+  policy?: { max?: number; delay_ms?: number; backoff?: 'linear' | 'exponential'; jitter?: boolean }
+  error_route?: string
+}
+type CompensateParams = {
+  receipt_from?: string
+  reverse?: InlineTarget
+  idempotent?: boolean
+  reason?: string
+}
+type ErrorParams = {
+  of?: InlineTarget
+  catch?: string[]
+  handler?: InlineTarget
+  terminate_on_match?: boolean
+}
 
 const PREAMBLE_HELPERS = `use std::collections::HashMap;
 use std::time::Duration as StdDuration;
@@ -191,6 +209,9 @@ export class RustBackend extends BaseResolver {
     ENRICH: (v) => this.emitEnrich(v),
     DELETE: (v) => this.emitDelete(v),
     STREAM: (v) => this.emitStream(v),
+    RETRY: (v) => this.emitRetry(v),
+    COMPENSATE: (v) => this.emitCompensate(v),
+    ERROR: (v) => this.emitError(v),
   }
 
   protected rootFileName(c: Composition): string {
@@ -399,6 +420,116 @@ pub async fn run(input: Value) -> Result<Ctx> {
         reqwest::Client::new().post(${JSON.stringify(url)}).json(&body).send().await?;
     }
     Ok(Value::Null)
+}
+`
+  }
+
+  /** Inline a target verb's body for use inside a resilience verb's function.
+   *  Returns lines indented with `indent`, ending with an `Ok(...)` expression
+   *  suitable as the closure's return. */
+  private inlineBody(target: InlineTarget, indent: string = '    '): string {
+    const t = target ?? { verb: 'NOOP' }
+    switch (t.verb) {
+      case 'FETCH': {
+        const p = (t.params ?? {}) as FetchParams
+        const url = p.source?.config?.url ?? ''
+        return `${indent}let r = reqwest::Client::new().request(reqwest::Method::from_bytes("GET".as_bytes())?, ${JSON.stringify(url)}).send().await?.error_for_status()?;
+${indent}Ok(r.json::<Value>().await?)`
+      }
+      case 'VALIDATE': {
+        const p = (t.params ?? {}) as ValidateParams
+        const action = p.on_fail?.action ?? 'flag'
+        return `${indent}let ok = true;
+${indent}if !ok { anyhow::bail!("VALIDATE failed (action=${action})"); }
+${indent}Ok(ctx.input.clone())`
+      }
+      case 'DELETE': {
+        const p = (t.params ?? {}) as DeleteParams
+        const table = p.sink?.config?.table ?? 'unknown_table'
+        const predicate = p.predicate ?? 'TRUE'
+        return `${indent}let pool = sqlx::postgres::PgPoolOptions::new().connect(&std::env::var("DATABASE_URL")?).await?;
+${indent}sqlx::query("DELETE FROM ${table} WHERE ${predicate}").execute(&pool).await?;
+${indent}let receipt = new_receipt("sql:${table}", false);
+${indent}Ok(json!({ "id": receipt.id, "timestamp": receipt.timestamp, "sink": receipt.sink, "reversible": receipt.reversible }))`
+      }
+      case 'EMIT': {
+        const p = (t.params ?? {}) as EmitParams
+        const url = p.target?.config?.url ?? ''
+        const channel = p.target?.config?.channel ?? ''
+        return `${indent}let payload = ctx.input.clone();
+${indent}let body = json!({ "channel": ${JSON.stringify(channel)}, "text": payload });
+${indent}reqwest::Client::new().post(${JSON.stringify(url)}).json(&body).send().await?;
+${indent}Ok(Value::Null)`
+      }
+      default:
+        return `${indent}// inline target verb '${t.verb}' not specialised — host required
+${indent}Ok(ctx.input.clone())`
+    }
+  }
+
+  private emitRetry(v: Verb): string {
+    const p = (v.params ?? {}) as RetryParams
+    const target = p.of ?? { verb: 'NOOP' }
+    const max = p.policy?.max ?? 3
+    const delay = p.policy?.delay_ms ?? 1000
+    const backoff = p.policy?.backoff ?? 'exponential'
+    const jitter = p.policy?.jitter ?? false
+    const errorRoute = p.error_route
+    const attemptBlock = `let attempt = || async {
+${this.inlineBody(target, '        ')}
+    };`
+    if (!errorRoute) {
+      return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    ${attemptBlock}
+    retry(attempt, ${max}, ${delay}, ${JSON.stringify(backoff)}, ${jitter}).await
+}
+`
+    }
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    ${attemptBlock}
+    match retry(attempt, ${max}, ${delay}, ${JSON.stringify(backoff)}, ${jitter}).await {
+        Ok(v) => Ok(v),
+        Err(_) => {
+            Box::pin(_execute(${JSON.stringify(errorRoute)}, ctx)).await?;
+            Ok(ctx.values.get(${JSON.stringify(errorRoute)}).cloned().unwrap_or(Value::Null))
+        }
+    }
+}
+`
+  }
+
+  private emitCompensate(v: Verb): string {
+    const p = (v.params ?? {}) as CompensateParams
+    const receiptFrom = p.receipt_from ?? ''
+    const reverse = p.reverse ?? { verb: 'NOOP' }
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    let receipt = ctx.receipts.get(${JSON.stringify(receiptFrom)}).cloned()
+        .ok_or_else(|| anyhow!("COMPENSATE ${v.id}: no receipt for ${receiptFrom}"))?;
+    if !receipt.reversible { anyhow::bail!("COMPENSATE ${v.id}: receipt is non-reversible"); }
+${this.inlineBody(reverse, '    ')}
+}
+`
+  }
+
+  private emitError(v: Verb): string {
+    const p = (v.params ?? {}) as ErrorParams
+    const target = p.of ?? { verb: 'NOOP' }
+    const catches = JSON.stringify(p.catch ?? [])
+    const handler = p.handler ?? { verb: 'NOOP' }
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    let target = || async {
+${this.inlineBody(target, '        ')}
+    };
+    match target().await {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            let catches: Vec<&str> = serde_json::from_str(${JSON.stringify(catches)})?;
+            let name = format!("{:?}", e);
+            if catches.iter().any(|t| name.contains(t)) {
+${this.inlineBody(handler, '                ')}
+            } else { Err(e) }
+        }
+    }
 }
 `
   }
