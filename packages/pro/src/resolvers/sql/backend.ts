@@ -43,6 +43,12 @@ const SQL_ERROR_WARNING = (verbId: string): ResolverWarning => ({
   verb_id: verbId,
 })
 
+const SQL_FLOW_WARNING = (verbName: string, verbId: string): ResolverWarning => ({
+  code: 'VERB_UNEXPRESSIBLE_IN_SQL',
+  message: `verb ${verbName} (${verbId}) is a flow-control verb — host runtime required`,
+  verb_id: verbId,
+})
+
 type DialectConfig = {
   label: string
   headerTarget: string
@@ -107,6 +113,34 @@ abstract class SqlBase extends BaseResolver {
     ERROR: (v, ctx) => {
       ctx.warn(SQL_ERROR_WARNING(v.id))
       return `-- ERROR ${v.id}: try/catch + handler routing handled by host runtime.`
+    },
+    AWAIT: (v, ctx) => {
+      ctx.warn(SQL_FLOW_WARNING('AWAIT', v.id))
+      return `-- AWAIT ${v.id}: blocking on event/time/signal handled by host runtime.`
+    },
+    BRANCH: (v, ctx) => {
+      ctx.warn(SQL_FLOW_WARNING('BRANCH', v.id))
+      return `-- BRANCH ${v.id}: conditional path selection handled by host runtime.`
+    },
+    SPLIT: (v, ctx) => {
+      ctx.warn(SQL_FLOW_WARNING('SPLIT', v.id))
+      return `-- SPLIT ${v.id}: parallel fan-out handled by host runtime.`
+    },
+    MERGE: (v, ctx) => {
+      ctx.warn(SQL_FLOW_WARNING('MERGE', v.id))
+      return `-- MERGE ${v.id}: parallel fan-in handled by host runtime.`
+    },
+    GATE: (v, ctx) => {
+      ctx.warn(SQL_FLOW_WARNING('GATE', v.id))
+      return `-- GATE ${v.id}: human-in-the-loop decision handled by host runtime.`
+    },
+    SIGNAL: (v, ctx) => {
+      ctx.warn(SQL_FLOW_WARNING('SIGNAL', v.id))
+      return `-- SIGNAL ${v.id}: external system dispatch handled by host runtime.`
+    },
+    TERMINATE: (v, ctx) => {
+      ctx.warn(SQL_FLOW_WARNING('TERMINATE', v.id))
+      return `-- TERMINATE ${v.id}: ROLLBACK and abort transaction.\nROLLBACK;`
     },
   }
 

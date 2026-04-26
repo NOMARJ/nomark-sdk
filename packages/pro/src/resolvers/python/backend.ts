@@ -1,5 +1,5 @@
 import { BaseResolver, type VerbHandler } from '../core/resolver.js'
-import { partitionVerbs, type Composition, type ComputeVerb, type Verb } from '../core/ir.js'
+import { buildLinearChain, hasFlowVerbs, partitionVerbs, type Composition, type ComputeVerb, type Verb } from '../core/ir.js'
 
 type FetchParams = { source?: { type?: string; config?: { url?: string } } }
 type ValidateParams = {
@@ -32,6 +32,13 @@ type ErrorParams = {
   handler?: InlineTarget
   terminate_on_match?: boolean
 }
+type AwaitParams = { event?: { topic?: string }; timeout_ms?: number; timeout_route?: string }
+type BranchParams = { conditions?: { when?: string; then?: string }[]; default?: string }
+type SplitParams = { strategy?: string; targets?: string[] }
+type MergeParams = { sources?: string[]; strategy?: string; timeout_ms?: number; combine?: string; from?: string }
+type GateParams = { actor?: { role?: string; id?: string }; prompt?: string; options?: string[]; timeout_ms?: number; default_route?: string }
+type SignalParams = { system?: string; signal?: { type?: string; url?: string }; timeout_ms?: number; timeout_route?: string }
+type TerminateParams = { reason?: string; status?: string; cleanup?: string[] }
 
 const PREAMBLE_HELPERS = `from __future__ import annotations
 import asyncio
@@ -140,6 +147,13 @@ export class PythonBackend extends BaseResolver {
     RETRY: (v) => this.emitRetry(v),
     COMPENSATE: (v) => this.emitCompensate(v),
     ERROR: (v) => this.emitError(v),
+    AWAIT: (v) => this.emitAwait(v),
+    BRANCH: (v) => this.emitBranch(v),
+    SPLIT: (v) => this.emitSplit(v),
+    MERGE: (v) => this.emitMerge(v),
+    GATE: (v) => this.emitGate(v),
+    SIGNAL: (v) => this.emitSignal(v),
+    TERMINATE: (v) => this.emitTerminate(v),
   }
 
   protected override bodySeparator(): string {
@@ -163,12 +177,44 @@ export class PythonBackend extends BaseResolver {
 
   protected emitPostamble(c: Composition): string {
     const { compute } = partitionVerbs(c)
-    const first = compute[0]?.id ?? 'start'
+    if (!hasFlowVerbs(c)) {
+      // Linear form (BC-preserved): identical to pre-W5 emission.
+      const first = compute[0]?.id ?? 'start'
+      const cases = compute
+        .map((v, i) => {
+          const next = compute[i + 1]
+          const middleLine = next
+            ? `await _execute(${JSON.stringify(next.id)}, ctx)`
+            : 'return'
+          return `    if vid == ${JSON.stringify(v.id)}:
+        ctx.values[${JSON.stringify(v.id)}] = await ${v.id}(ctx)
+        ${middleLine}
+        return`
+        })
+        .join('\n')
+
+      return `async def _execute(vid: str, ctx: Ctx) -> None:
+${cases}
+    raise ValueError(f"unknown verb id: {vid}")
+
+async def run(input: Any = None) -> Ctx:
+    ctx = Ctx(input=input)
+    await _execute(${JSON.stringify(first)}, ctx)
+    return ctx
+
+
+if __name__ == "__main__":
+    asyncio.run(run())
+`
+    }
+
+    // Graph form: linear chain respects SPLIT-children + self-dispatching verbs.
+    const chain = buildLinearChain(c)
     const cases = compute
-      .map((v, i) => {
-        const next = compute[i + 1]
-        const middleLine = next
-          ? `await _execute(${JSON.stringify(next.id)}, ctx)`
+      .map((v) => {
+        const linearNext = chain.next.get(v.id)
+        const middleLine = linearNext
+          ? `await _execute(${JSON.stringify(linearNext)}, ctx)`
           : 'return'
         return `    if vid == ${JSON.stringify(v.id)}:
         ctx.values[${JSON.stringify(v.id)}] = await ${v.id}(ctx)
@@ -177,13 +223,22 @@ export class PythonBackend extends BaseResolver {
       })
       .join('\n')
 
-    return `async def _execute(vid: str, ctx: Ctx) -> None:
+    return `class _TerminateError(Exception):
+    def __init__(self, reason: str, status: str):
+        super().__init__(f"__TERMINATE: {reason}")
+        self.reason = reason
+        self.status = status
+
+async def _execute(vid: str, ctx: Ctx) -> None:
 ${cases}
     raise ValueError(f"unknown verb id: {vid}")
 
 async def run(input: Any = None) -> Ctx:
     ctx = Ctx(input=input)
-    await _execute(${JSON.stringify(first)}, ctx)
+    try:
+        await _execute(${JSON.stringify(chain.entry ?? 'start')}, ctx)
+    except _TerminateError:
+        pass
     return ctx
 
 
@@ -447,6 +502,148 @@ ${this.inlineBody(target, '        ')}
         if any(t == type(e).__name__ or t == getattr(e, "code", None) for t in catches):
 ${this.inlineBody(handler, '            ')}
         raise
+`
+  }
+
+  private emitBranch(v: Verb): string {
+    const p = (v.params ?? {}) as BranchParams
+    const conds = (p.conditions ?? []).map(
+      (c) =>
+        `    if _predicate(${JSON.stringify(c.when ?? 'False')}, ctx.input):
+        await _execute(${JSON.stringify(c.then ?? '')}, ctx)
+        return ctx.values.get(${JSON.stringify(c.then ?? '')})`,
+    ).join('\n')
+    const fallback = p.default
+      ? `    await _execute(${JSON.stringify(p.default)}, ctx)
+    return ctx.values.get(${JSON.stringify(p.default)})`
+      : '    return None'
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+${conds}
+${fallback}
+`
+  }
+
+  private emitSplit(v: Verb): string {
+    const p = (v.params ?? {}) as SplitParams
+    const targets = pyLit(p.targets ?? [])
+    const strategy = JSON.stringify(p.strategy ?? 'parallel')
+    return `async def ${v.id}(ctx: Ctx) -> List[Any]:
+    targets = ${targets}
+    strategy = ${strategy}
+    _ = strategy  # 'parallel' | 'broadcast' | 'partition' — host may inspect
+    async def _branch(t: str) -> Any:
+        branch_ctx = Ctx(input=ctx.input)
+        await _execute(t, branch_ctx)
+        return branch_ctx.values.get(t)
+    results = await asyncio.gather(*[_branch(t) for t in targets])
+    ctx.values[${JSON.stringify(v.id)} + ":branches"] = list(results)
+    return list(results)
+`
+  }
+
+  private emitMerge(v: Verb): string {
+    const p = (v.params ?? {}) as MergeParams
+    const sources = pyLit(p.sources ?? [])
+    const strategy = p.strategy ?? 'all'
+    const splitId = p.from ?? ''
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    sources = ${sources}
+    _ = sources
+    branches = ctx.values.get(${JSON.stringify(splitId)} + ":branches", [])
+    if ${JSON.stringify(strategy)} == "first":
+        return branches[0] if branches else None
+    if ${JSON.stringify(strategy)} == "majority":
+        from collections import Counter
+        counts = Counter(json.dumps(b, sort_keys=True) for b in branches)
+        if not counts: return None
+        return json.loads(counts.most_common(1)[0][0])
+    flat: List[Any] = []
+    for b in branches:
+        if isinstance(b, list): flat.extend(b)
+        else: flat.append(b)
+    return flat
+`
+  }
+
+  private emitGate(v: Verb): string {
+    const p = (v.params ?? {}) as GateParams
+    const prompt = p.prompt ?? ''
+    const options = pyLit(p.options ?? [])
+    const actor = pyLit(p.actor ?? {})
+    const timeout = p.timeout_ms ?? 0
+    const fallback = p.default_route ?? ''
+    const timeoutSec = timeout ? timeout / 1000.0 : 'None'
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    gate = globals().get("__gate__")
+    decision = None
+    if gate:
+        try:
+            decision = await asyncio.wait_for(
+                gate({"prompt": ${JSON.stringify(prompt)}, "options": ${options}, "actor": ${actor}}, ctx.input),
+                timeout=${timeoutSec},
+            )
+        except asyncio.TimeoutError:
+            decision = None
+    if decision is None and ${JSON.stringify(fallback)}:
+        await _execute(${JSON.stringify(fallback)}, ctx)
+        return ctx.values.get(${JSON.stringify(fallback)})
+    return decision
+`
+  }
+
+  private emitAwait(v: Verb): string {
+    const p = (v.params ?? {}) as AwaitParams
+    const topic = p.event?.topic ?? ''
+    const timeout = p.timeout_ms ?? 0
+    const route = p.timeout_route ?? ''
+    const timeoutSec = timeout ? timeout / 1000.0 : 'None'
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    await_fn = globals().get("__await__")
+    ev = None
+    if await_fn:
+        try:
+            ev = await asyncio.wait_for(await_fn({"topic": ${JSON.stringify(topic)}}, ctx), timeout=${timeoutSec})
+        except asyncio.TimeoutError:
+            ev = None
+    if ev is None and ${JSON.stringify(route)}:
+        await _execute(${JSON.stringify(route)}, ctx)
+        return ctx.values.get(${JSON.stringify(route)})
+    return ev
+`
+  }
+
+  private emitSignal(v: Verb): string {
+    const p = (v.params ?? {}) as SignalParams
+    const system = p.system ?? ''
+    const signal = pyLit(p.signal ?? {})
+    const timeout = p.timeout_ms ?? 0
+    const route = p.timeout_route ?? ''
+    const timeoutSec = timeout ? timeout / 1000.0 : 'None'
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    signal_fn = globals().get("__signal__")
+    r = None
+    if signal_fn:
+        try:
+            r = await asyncio.wait_for(signal_fn(${JSON.stringify(system)}, ${signal}, ctx), timeout=${timeoutSec})
+        except asyncio.TimeoutError:
+            r = None
+    if r is None and ${JSON.stringify(route)}:
+        await _execute(${JSON.stringify(route)}, ctx)
+        return ctx.values.get(${JSON.stringify(route)})
+    return r
+`
+  }
+
+  private emitTerminate(v: Verb): string {
+    const p = (v.params ?? {}) as TerminateParams
+    const reason = p.reason ?? ''
+    const status = p.status ?? 'failed'
+    const cleanup = pyLit(p.cleanup ?? [])
+    return `async def ${v.id}(ctx: Ctx) -> Any:
+    cleanup = ${cleanup}
+    for cid in cleanup:
+        await _execute(cid, ctx)
+    raise _TerminateError(${JSON.stringify(reason)}, ${JSON.stringify(status)})
 `
   }
 }
