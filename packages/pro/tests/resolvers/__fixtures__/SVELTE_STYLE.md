@@ -1,6 +1,6 @@
 # SVELTE_STYLE — Svelte surface fixture conventions
 
-**Status:** DRAFT — pending owner approval (W3 gate-2)
+**Status:** APPROVED — frozen 2026-04-26 (W3 gate-2)
 **Scope:** rules the Svelte surface backend (`packages/pro/src/resolvers/svelte/backend.ts`) must reproduce byte-for-byte when emitting `expected/svelte/*.svelte`.
 **Authority:** byte-exact equality against `expected/svelte/Dashboard.svelte`.
 **Sibling contract:** REACT_STYLE.md (frozen 2026-04-18 SUR-000). Where Svelte's framework idioms diverge from React's, the divergence is documented below; everywhere else the React conventions carry over.
@@ -90,4 +90,4 @@ Multi-attribute wrap follows REACT_STYLE §"JSX attribute wrap":
 
 ---
 
-**Frozen:** PENDING owner ack on W3 gate-2.
+**Frozen:** 2026-04-26 by owner ack on W3 gate-2 (commit `e027d0d` for fixture, `4e49754` for backend).

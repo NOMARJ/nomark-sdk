@@ -1,6 +1,6 @@
 # VUE_STYLE — Vue surface fixture conventions
 
-**Status:** DRAFT — pending owner approval (W3 gate-2)
+**Status:** APPROVED — frozen 2026-04-26 (W3 gate-2)
 **Scope:** rules the Vue surface backend (`packages/pro/src/resolvers/vue/backend.ts`) must reproduce byte-for-byte when emitting `expected/vue/*.vue`.
 **Authority:** byte-exact equality against `expected/vue/Dashboard.vue`.
 **Sibling contract:** REACT_STYLE.md (frozen 2026-04-18 SUR-000). Where Vue's framework idioms diverge from React's, the divergence is documented below; everywhere else the React conventions carry over.
@@ -94,4 +94,4 @@ Same data attribute conventions as React, expressed as object keys instead of JS
 
 ---
 
-**Frozen:** PENDING owner ack on W3 gate-2.
+**Frozen:** 2026-04-26 by owner ack on W3 gate-2 (commit `e027d0d` for fixture, `4e49754` for backend).
