@@ -159,6 +159,22 @@ export function hasFlowVerbs(c: Composition): boolean {
   return c.verbs.some((v) => isFlowVerb(v.verb))
 }
 
+/** The 6 interactive surface verbs. Their presence in a composition flips
+ *  the surface backend's Dashboard signature to take a `dispatch` argument
+ *  (W6 path A: signature-flag dispatcher). Read-only compositions (only
+ *  MONITOR/ARRANGE/DISPLAY/STATUS/GUIDE) emit the original signature. */
+const INTERACTIVE_SET: ReadonlySet<string> = new Set<SurfaceVerb>([
+  'DECIDE', 'CONFIGURE', 'EXPLORE', 'AUTHOR', 'ONBOARD', 'COLLECT',
+])
+
+export function isInteractiveVerb(name: string): boolean {
+  return INTERACTIVE_SET.has(name)
+}
+
+export function hasInteractiveVerbs(c: Composition): boolean {
+  return c.verbs.some((v) => isInteractiveVerb(v.verb))
+}
+
 /** Verbs that handle their own dispatch internally — the dispatcher case
  *  emits `return;` after the body rather than chaining to a linear next.
  *  BRANCH routes to one of N conditional targets and never returns to the

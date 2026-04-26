@@ -1,5 +1,5 @@
 import { BaseResolver, type VerbHandler } from '../core/resolver.js'
-import { partitionVerbs, type Composition, type ComputeVerb, type SurfaceVerb, type Verb } from '../core/ir.js'
+import { hasInteractiveVerbs, partitionVerbs, type Composition, type ComputeVerb, type SurfaceVerb, type Verb } from '../core/ir.js'
 
 type MonitorParams = {
   subject?: string
@@ -11,7 +11,14 @@ type DisplayParams = { type?: string; data?: string; emphasis?: string; label?: 
 type StatusParams = { type?: string; message?: string }
 type GuideParams = { type?: string; message?: string; priority?: string }
 
-const PREAMBLE_HELPERS = `<script lang="ts" module>
+type DecideParams = { prompt?: string; options?: { value?: string; label?: string }[] }
+type ConfigureParams = { prompt?: string; params?: { key?: string; type?: string; label?: string }[] }
+type ExploreParams = { prompt?: string; source?: string; placeholder?: string }
+type AuthorParams = { prompt?: string; schema?: string; save_mode?: string }
+type OnboardParams = { prompt?: string; steps?: { id?: string; label?: string }[]; progress_type?: string }
+type CollectParams = { type?: string; label?: string; name?: string; required?: boolean }
+
+const PREAMBLE_READONLY = `<script lang="ts" module>
   export type DashboardState = {
     values: Record<string, unknown>;
     status: 'idle' | 'loading' | 'empty';
@@ -24,10 +31,26 @@ const PREAMBLE_HELPERS = `<script lang="ts" module>
 </script>
 `
 
+const PREAMBLE_INTERACTIVE = `<script lang="ts" module>
+  export type DashboardState = {
+    values: Record<string, unknown>;
+    status: 'idle' | 'loading' | 'empty';
+    alerts: readonly string[];
+    selections: Record<string, unknown>;
+    drafts: Record<string, unknown>;
+  };
+
+  export type DashboardDispatch = (event: { verb: string; id: string; action: string; payload: unknown }) => void;
+</script>
+
+<script lang="ts">
+  let { state, dispatch }: { state: DashboardState; dispatch: DashboardDispatch } = $props();
+</script>
+`
+
 /** Sort surface verbs leaf-first so each snippet is defined before any caller
- *  references it. Order: DISPLAY/STATUS/GUIDE (leaves, in composition order)
- *  → ARRANGE → MONITOR. Snippets in Svelte 5 hoist, but emit order matters
- *  for byte-equality and readability. */
+ *  references it. Order: leaves (DISPLAY/STATUS/GUIDE/DECIDE/CONFIGURE/EXPLORE/
+ *  AUTHOR/ONBOARD/COLLECT, in composition order) → ARRANGE → MONITOR. */
 function leafFirst(verbs: readonly Verb[]): Verb[] {
   const rank = (v: Verb): number => {
     if (v.verb === 'MONITOR') return 3
@@ -45,12 +68,20 @@ function leafFirst(verbs: readonly Verb[]): Verb[] {
 export class SvelteBackend extends BaseResolver {
   readonly label = 'svelte'
 
+  private interactive = false
+
   protected handlers: Partial<Record<ComputeVerb | SurfaceVerb, VerbHandler>> = {
     MONITOR: (v) => this.emitMonitor(v),
     ARRANGE: (v) => this.emitArrange(v),
     DISPLAY: (v) => this.emitDisplay(v),
     STATUS: (v) => this.emitStatus(v),
     GUIDE: (v) => this.emitGuide(v),
+    DECIDE: (v) => this.emitDecide(v),
+    CONFIGURE: (v) => this.emitConfigure(v),
+    EXPLORE: (v) => this.emitExplore(v),
+    AUTHOR: (v) => this.emitAuthor(v),
+    ONBOARD: (v) => this.emitOnboard(v),
+    COLLECT: (v) => this.emitCollect(v),
   }
 
   protected override handlerKind(): 'compute' | 'surface' {
@@ -58,6 +89,7 @@ export class SvelteBackend extends BaseResolver {
   }
 
   protected override targetVerbs(c: Composition): { handled: Verb[]; stripped: Verb[] } {
+    this.interactive = hasInteractiveVerbs(c)
     const { compute, surface } = partitionVerbs(c)
     return { handled: leafFirst(surface), stripped: compute }
   }
@@ -72,35 +104,46 @@ export class SvelteBackend extends BaseResolver {
       `<!-- Composition: ${c.name} v${c.version} -->`,
       `<!-- ${c.description ?? ''} -->`,
     ].join('\n')
-    return `${header}\n${PREAMBLE_HELPERS}`
+    return `${header}\n${this.interactive ? PREAMBLE_INTERACTIVE : PREAMBLE_READONLY}`
   }
 
   protected emitPostamble(c: Composition): string {
     const { surface } = partitionVerbs(c)
     const monitor = surface.find((v) => v.verb === 'MONITOR')
     if (!monitor) throw new Error('Svelte backend requires a MONITOR verb')
-    return `{@render ${monitor.id}(state)}\n`
+    return this.interactive
+      ? `{@render ${monitor.id}(state, dispatch)}\n`
+      : `{@render ${monitor.id}(state)}\n`
+  }
+
+  private snippetSig(): string {
+    return this.interactive
+      ? `(state: DashboardState, dispatch: DashboardDispatch)`
+      : `(state: DashboardState)`
+  }
+
+  private renderArgs(): string {
+    return this.interactive ? 'state, dispatch' : 'state'
   }
 
   private emitMonitor(v: Verb): string {
     const p = (v.params ?? {}) as MonitorParams
     const subject = p.subject ?? ''
     const refresh = p.refresh ? `${p.refresh.value}${p.refresh.unit}` : ''
-    // The snippet body composes statuses + guides + the (single) ARRANGE.
-    // Look up siblings via the composition the dispatcher already iterated.
     const siblings = this.lastComposition?.verbs ?? []
     const statuses = siblings.filter((s) => s.verb === 'STATUS')
     const guides = siblings.filter((g) => g.verb === 'GUIDE')
     const arrange = siblings.find((a) => a.verb === 'ARRANGE')
     if (!arrange) throw new Error('Svelte backend requires an ARRANGE verb')
 
+    const args = this.renderArgs()
     const renderLines = [
-      ...statuses.map((s) => `    {@render ${s.id}(state)}`),
-      ...guides.map((g) => `    {@render ${g.id}(state)}`),
-      `    {@render ${arrange.id}(state)}`,
+      ...statuses.map((s) => `    {@render ${s.id}(${args})}`),
+      ...guides.map((g) => `    {@render ${g.id}(${args})}`),
+      `    {@render ${arrange.id}(${args})}`,
     ]
 
-    return `{#snippet ${v.id}(state: DashboardState)}
+    return `{#snippet ${v.id}${this.snippetSig()}}
   <main
     data-monitor='${v.id}'
     data-subject='${subject}'
@@ -118,8 +161,9 @@ ${renderLines.join('\n')}
     const density = p.density ?? ''
     const children = p.children ?? []
     const childrenAttr = children.join(',')
-    const childRenders = children.map((c) => `    {@render ${c}(state)}`)
-    return `{#snippet ${v.id}(state: DashboardState)}
+    const args = this.renderArgs()
+    const childRenders = children.map((c) => `    {@render ${c}(${args})}`)
+    return `{#snippet ${v.id}${this.snippetSig()}}
   <div
     data-arrange='${type}'
     data-density='${density}'
@@ -139,7 +183,7 @@ ${childRenders.join('\n')}
     const openTag = `<section data-display='${v.id}' data-type='${type}' data-emphasis='${emphasis}'>`
     if (type === 'metric') {
       const label = p.label ?? ''
-      return `{#snippet ${v.id}(state: DashboardState)}
+      return `{#snippet ${v.id}${this.snippetSig()}}
   ${openTag}
     <header>${label}</header>
     <strong>{String(state.values['${dataKey}'] ?? '—')}</strong>
@@ -148,14 +192,14 @@ ${childRenders.join('\n')}
 `
     }
     if (type === 'chart') {
-      return `{#snippet ${v.id}(state: DashboardState)}
+      return `{#snippet ${v.id}${this.snippetSig()}}
   ${openTag}
     <pre>{JSON.stringify(state.values['${dataKey}'] ?? null, null, 2)}</pre>
   </section>
 {/snippet}
 `
     }
-    return `{#snippet ${v.id}(state: DashboardState)}
+    return `{#snippet ${v.id}${this.snippetSig()}}
   ${openTag}
     <!-- unhandled DISPLAY.type='${type}' -->
   </section>
@@ -167,7 +211,7 @@ ${childRenders.join('\n')}
     const p = (v.params ?? {}) as StatusParams
     const type = p.type ?? ''
     const message = p.message ?? ''
-    return `{#snippet ${v.id}(state: DashboardState)}
+    return `{#snippet ${v.id}${this.snippetSig()}}
   {#if state.status === '${type}'}
     <div role='status' aria-live='polite' data-status='${type}'>
       ${message}
@@ -181,12 +225,135 @@ ${childRenders.join('\n')}
     const p = (v.params ?? {}) as GuideParams
     const message = p.message ?? ''
     const priority = p.priority ?? ''
-    return `{#snippet ${v.id}(state: DashboardState)}
+    return `{#snippet ${v.id}${this.snippetSig()}}
   {#if state.alerts.includes('${v.id}')}
     <div role='alert' data-guide='${v.id}' data-priority='${priority}'>
       ${message}
     </div>
   {/if}
+{/snippet}
+`
+  }
+
+  private emitDecide(v: Verb): string {
+    const p = (v.params ?? {}) as DecideParams
+    const prompt = p.prompt ?? ''
+    const opts = p.options ?? []
+    const buttons = opts.map((o) =>
+      `    <button type='button' data-option='${o.value ?? ''}' onclick={() => dispatch({ verb: 'DECIDE', id: '${v.id}', action: 'select', payload: '${o.value ?? ''}' })}>${o.label ?? ''}</button>`,
+    ).join('\n')
+    return `{#snippet ${v.id}(state: DashboardState, dispatch: DashboardDispatch)}
+  <form data-decide='${v.id}' data-prompt='${prompt}'>
+${buttons}
+  </form>
+{/snippet}
+`
+  }
+
+  private emitConfigure(v: Verb): string {
+    const p = (v.params ?? {}) as ConfigureParams
+    const prompt = p.prompt ?? ''
+    const params = p.params ?? []
+    const inputs = params.map((pa) =>
+      `    <label>
+      ${pa.label ?? ''}
+      <input
+        name='${pa.key ?? ''}'
+        type='${pa.type ?? 'text'}'
+        value={String(state.drafts['${pa.key ?? ''}'] ?? state.values['${pa.key ?? ''}'] ?? '')}
+        onchange={(e) => dispatch({ verb: 'CONFIGURE', id: '${v.id}', action: 'set', payload: { ${pa.key ?? ''}: (e.currentTarget as HTMLInputElement).value } })}
+      />
+    </label>`,
+    ).join('\n')
+    return `{#snippet ${v.id}(state: DashboardState, dispatch: DashboardDispatch)}
+  <form data-configure='${v.id}' data-prompt='${prompt}'>
+${inputs}
+    <button type='button' onclick={() => dispatch({ verb: 'CONFIGURE', id: '${v.id}', action: 'apply', payload: state.drafts })}>Apply</button>
+  </form>
+{/snippet}
+`
+  }
+
+  private emitExplore(v: Verb): string {
+    const p = (v.params ?? {}) as ExploreParams
+    const prompt = p.prompt ?? ''
+    const source = p.source ?? ''
+    const placeholder = p.placeholder ?? ''
+    return `{#snippet ${v.id}(state: DashboardState, dispatch: DashboardDispatch)}
+  <section data-explore='${v.id}' data-prompt='${prompt}' data-source='${source}'>
+    <input
+      type='search'
+      placeholder='${placeholder}'
+      value={String(state.drafts['${v.id}'] ?? '')}
+      onchange={(e) => dispatch({ verb: 'EXPLORE', id: '${v.id}', action: 'query', payload: (e.currentTarget as HTMLInputElement).value })}
+    />
+    <ul role='listbox'>
+      {#each ((state.values['${source}'] as readonly { id: string; label: string }[] | undefined) ?? []) as r (r.id)}
+        <li data-result-id={r.id}>{r.label}</li>
+      {/each}
+    </ul>
+  </section>
+{/snippet}
+`
+  }
+
+  private emitAuthor(v: Verb): string {
+    const p = (v.params ?? {}) as AuthorParams
+    const prompt = p.prompt ?? ''
+    const schema = p.schema ?? ''
+    const saveMode = p.save_mode ?? 'manual'
+    return `{#snippet ${v.id}(state: DashboardState, dispatch: DashboardDispatch)}
+  <form data-author='${v.id}' data-prompt='${prompt}' data-schema='${schema}' data-save-mode='${saveMode}'>
+    <output data-schema-ref='${schema}'>{String(state.drafts['${v.id}'] ?? state.values['${v.id}'] ?? '')}</output>
+    <textarea
+      name='${v.id}'
+      value={String(state.drafts['${v.id}'] ?? state.values['${v.id}'] ?? '')}
+      onchange={(e) => dispatch({ verb: 'AUTHOR', id: '${v.id}', action: 'edit', payload: (e.currentTarget as HTMLTextAreaElement).value })}
+    ></textarea>
+    <button type='button' onclick={() => dispatch({ verb: 'AUTHOR', id: '${v.id}', action: 'save', payload: state.drafts['${v.id}'] })}>Save</button>
+  </form>
+{/snippet}
+`
+  }
+
+  private emitOnboard(v: Verb): string {
+    const p = (v.params ?? {}) as OnboardParams
+    const prompt = p.prompt ?? ''
+    const progressType = p.progress_type ?? 'step'
+    const steps = p.steps ?? []
+    const stepLines = steps.map((s) =>
+      `      <li data-step='${s.id ?? ''}' data-active={String(current === '${s.id ?? ''}')}>${s.label ?? ''}</li>`,
+    ).join('\n')
+    const firstStep = steps[0]?.id ?? ''
+    return `{#snippet ${v.id}(state: DashboardState, dispatch: DashboardDispatch)}
+  {@const current = String(state.selections['${v.id}'] ?? '${firstStep}')}
+  <nav data-onboard='${v.id}' data-prompt='${prompt}' data-progress-type='${progressType}'>
+    <ol>
+${stepLines}
+    </ol>
+    <button type='button' data-step-action='advance' onclick={() => dispatch({ verb: 'ONBOARD', id: '${v.id}', action: 'advance', payload: current })}>Next</button>
+    <button type='button' data-step-action='skip' onclick={() => dispatch({ verb: 'ONBOARD', id: '${v.id}', action: 'skip', payload: current })}>Skip</button>
+  </nav>
+{/snippet}
+`
+  }
+
+  private emitCollect(v: Verb): string {
+    const p = (v.params ?? {}) as CollectParams
+    const type = p.type ?? 'text'
+    const label = p.label ?? ''
+    const name = p.name ?? ''
+    const required = p.required ?? false
+    return `{#snippet ${v.id}(state: DashboardState, dispatch: DashboardDispatch)}
+  <label data-collect='${v.id}' data-collect-type='${type}'>
+    ${label}
+    <input
+      type='${type}'
+      name='${name}'
+      ${required ? 'required\n      ' : ''}value={String(state.drafts['${name}'] ?? '')}
+      onchange={(e) => dispatch({ verb: 'COLLECT', id: '${v.id}', action: 'input', payload: (e.currentTarget as HTMLInputElement).value })}
+    />
+  </label>
 {/snippet}
 `
   }

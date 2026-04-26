@@ -1,5 +1,5 @@
 import { BaseResolver, type VerbHandler } from '../core/resolver.js'
-import { partitionVerbs, type Composition, type ComputeVerb, type SurfaceVerb, type Verb } from '../core/ir.js'
+import { hasInteractiveVerbs, partitionVerbs, type Composition, type ComputeVerb, type SurfaceVerb, type Verb } from '../core/ir.js'
 
 type MonitorParams = {
   subject?: string
@@ -11,7 +11,14 @@ type DisplayParams = { type?: string; data?: string; emphasis?: string; label?: 
 type StatusParams = { type?: string; message?: string }
 type GuideParams = { type?: string; message?: string; priority?: string }
 
-const PREAMBLE_HELPERS = `<script setup lang="ts">
+type DecideParams = { prompt?: string; options?: { value?: string; label?: string }[] }
+type ConfigureParams = { prompt?: string; params?: { key?: string; type?: string; label?: string }[] }
+type ExploreParams = { prompt?: string; source?: string; placeholder?: string }
+type AuthorParams = { prompt?: string; schema?: string; save_mode?: string }
+type OnboardParams = { prompt?: string; steps?: { id?: string; label?: string }[]; progress_type?: string }
+type CollectParams = { type?: string; label?: string; name?: string; required?: boolean }
+
+const PREAMBLE_READONLY = `<script setup lang="ts">
 import { h, defineRender, type VNode } from 'vue';
 
 export type DashboardState = {
@@ -23,8 +30,26 @@ export type DashboardState = {
 const props = defineProps<{ state: DashboardState }>();
 `
 
+const PREAMBLE_INTERACTIVE = `<script setup lang="ts">
+import { h, defineRender, type VNode } from 'vue';
+
+export type DashboardState = {
+  values: Record<string, unknown>;
+  status: 'idle' | 'loading' | 'empty';
+  alerts: readonly string[];
+  selections: Record<string, unknown>;
+  drafts: Record<string, unknown>;
+};
+
+export type DashboardDispatch = (event: { verb: string; id: string; action: string; payload: unknown }) => void;
+
+const props = defineProps<{ state: DashboardState; dispatch: DashboardDispatch }>();
+`
+
 export class VueBackend extends BaseResolver {
   readonly label = 'vue'
+
+  private interactive = false
 
   protected handlers: Partial<Record<ComputeVerb | SurfaceVerb, VerbHandler>> = {
     MONITOR: (v) => this.emitMonitor(v),
@@ -32,6 +57,12 @@ export class VueBackend extends BaseResolver {
     DISPLAY: (v) => this.emitDisplay(v),
     STATUS: (v) => this.emitStatus(v),
     GUIDE: (v) => this.emitGuide(v),
+    DECIDE: (v) => this.emitDecide(v),
+    CONFIGURE: (v) => this.emitConfigure(v),
+    EXPLORE: (v) => this.emitExplore(v),
+    AUTHOR: (v) => this.emitAuthor(v),
+    ONBOARD: (v) => this.emitOnboard(v),
+    COLLECT: (v) => this.emitCollect(v),
   }
 
   protected override handlerKind(): 'compute' | 'surface' {
@@ -39,6 +70,7 @@ export class VueBackend extends BaseResolver {
   }
 
   protected override targetVerbs(c: Composition): { handled: Verb[]; stripped: Verb[] } {
+    this.interactive = hasInteractiveVerbs(c)
     const { compute, surface } = partitionVerbs(c)
     return { handled: surface, stripped: compute }
   }
@@ -53,7 +85,7 @@ export class VueBackend extends BaseResolver {
       `<!-- Composition: ${c.name} v${c.version} -->`,
       `<!-- ${c.description ?? ''} -->`,
     ].join('\n')
-    return `${header}\n${PREAMBLE_HELPERS}`
+    return `${header}\n${this.interactive ? PREAMBLE_INTERACTIVE : PREAMBLE_READONLY}`
   }
 
   protected emitPostamble(c: Composition): string {
@@ -69,10 +101,26 @@ export class VueBackend extends BaseResolver {
     const arrangeParams = (arrange.params ?? {}) as ArrangeParams
     const children = arrangeParams.children ?? []
 
-    const statusLines = statuses.map((s) => `  ${s.id}(props.state),`)
-    const guideLines = guides.map((g) => `  ${g.id}(props.state),`)
-    const childLines = children.map((childId) => `    ${childId}(props.state),`)
+    if (!this.interactive) {
+      const statusLines = statuses.map((s) => `  ${s.id}(props.state),`)
+      const guideLines = guides.map((g) => `  ${g.id}(props.state),`)
+      const childLines = children.map((childId) => `    ${childId}(props.state),`)
+      const lines: string[] = [
+        `defineRender(() => ${monitor.id}([`,
+        ...statusLines,
+        ...guideLines,
+        `  ${arrange.id}([`,
+        ...childLines,
+        '  ]),',
+        ']));',
+        '</script>',
+      ]
+      return lines.join('\n') + '\n'
+    }
 
+    const statusLines = statuses.map((s) => `  ${s.id}(props.state, props.dispatch),`)
+    const guideLines = guides.map((g) => `  ${g.id}(props.state, props.dispatch),`)
+    const childLines = children.map((childId) => `    ${childId}(props.state, props.dispatch),`)
     const lines: string[] = [
       `defineRender(() => ${monitor.id}([`,
       ...statusLines,
@@ -83,7 +131,6 @@ export class VueBackend extends BaseResolver {
       ']));',
       '</script>',
     ]
-
     return lines.join('\n') + '\n'
   }
 
@@ -116,15 +163,22 @@ export class VueBackend extends BaseResolver {
 `
   }
 
+  private displaySig(): string {
+    return this.interactive
+      ? `(state: DashboardState, dispatch: DashboardDispatch)`
+      : `(state: DashboardState)`
+  }
+
   private emitDisplay(v: Verb): string {
     const p = (v.params ?? {}) as DisplayParams
     const type = p.type ?? ''
     const emphasis = p.emphasis ?? ''
     const dataKey = p.data ?? ''
     const propsObj = `{ 'data-display': '${v.id}', 'data-type': '${type}', 'data-emphasis': '${emphasis}' }`
+    const sig = this.displaySig()
     if (type === 'metric') {
       const label = p.label ?? ''
-      return `function ${v.id}(state: DashboardState): VNode {
+      return `function ${v.id}${sig}: VNode {
   return h('section', ${propsObj}, [
     h('header', null, '${label}'),
     h('strong', null, String(state.values['${dataKey}'] ?? '—')),
@@ -133,14 +187,14 @@ export class VueBackend extends BaseResolver {
 `
     }
     if (type === 'chart') {
-      return `function ${v.id}(state: DashboardState): VNode {
+      return `function ${v.id}${sig}: VNode {
   return h('section', ${propsObj}, [
     h('pre', null, JSON.stringify(state.values['${dataKey}'] ?? null, null, 2)),
   ]);
 }
 `
     }
-    return `function ${v.id}(state: DashboardState): VNode {
+    return `function ${v.id}${sig}: VNode {
   return h('section', ${propsObj}, [
     /* unhandled DISPLAY.type='${type}' */
   ]);
@@ -152,7 +206,7 @@ export class VueBackend extends BaseResolver {
     const p = (v.params ?? {}) as StatusParams
     const type = p.type ?? ''
     const message = p.message ?? ''
-    return `function ${v.id}(state: DashboardState): VNode | null {
+    return `function ${v.id}${this.displaySig()}: VNode | null {
   if (state.status !== '${type}') return null;
   return h('div', { role: 'status', 'aria-live': 'polite', 'data-status': '${type}' }, '${message}');
 }
@@ -163,9 +217,134 @@ export class VueBackend extends BaseResolver {
     const p = (v.params ?? {}) as GuideParams
     const message = p.message ?? ''
     const priority = p.priority ?? ''
-    return `function ${v.id}(state: DashboardState): VNode | null {
+    return `function ${v.id}${this.displaySig()}: VNode | null {
   if (!state.alerts.includes('${v.id}')) return null;
   return h('div', { role: 'alert', 'data-guide': '${v.id}', 'data-priority': '${priority}' }, '${message}');
+}
+`
+  }
+
+  private emitDecide(v: Verb): string {
+    const p = (v.params ?? {}) as DecideParams
+    const prompt = p.prompt ?? ''
+    const opts = p.options ?? []
+    const buttons = opts.map((o) =>
+      `    h('button', {
+      type: 'button',
+      'data-option': '${o.value ?? ''}',
+      onClick: () => dispatch({ verb: 'DECIDE', id: '${v.id}', action: 'select', payload: '${o.value ?? ''}' }),
+    }, '${o.label ?? ''}'),`,
+    ).join('\n')
+    return `function ${v.id}(state: DashboardState, dispatch: DashboardDispatch): VNode {
+  return h('form', { 'data-decide': '${v.id}', 'data-prompt': '${prompt}' }, [
+${buttons}
+  ]);
+}
+`
+  }
+
+  private emitConfigure(v: Verb): string {
+    const p = (v.params ?? {}) as ConfigureParams
+    const prompt = p.prompt ?? ''
+    const params = p.params ?? []
+    const inputs = params.map((pa) =>
+      `    h('label', null, [
+      '${pa.label ?? ''}',
+      h('input', {
+        name: '${pa.key ?? ''}',
+        type: '${pa.type ?? 'text'}',
+        value: String(state.drafts['${pa.key ?? ''}'] ?? state.values['${pa.key ?? ''}'] ?? ''),
+        onChange: (e: Event) => dispatch({ verb: 'CONFIGURE', id: '${v.id}', action: 'set', payload: { ${pa.key ?? ''}: (e.target as HTMLInputElement).value } }),
+      }),
+    ]),`,
+    ).join('\n')
+    return `function ${v.id}(state: DashboardState, dispatch: DashboardDispatch): VNode {
+  return h('form', { 'data-configure': '${v.id}', 'data-prompt': '${prompt}' }, [
+${inputs}
+    h('button', { type: 'button', onClick: () => dispatch({ verb: 'CONFIGURE', id: '${v.id}', action: 'apply', payload: state.drafts }) }, 'Apply'),
+  ]);
+}
+`
+  }
+
+  private emitExplore(v: Verb): string {
+    const p = (v.params ?? {}) as ExploreParams
+    const prompt = p.prompt ?? ''
+    const source = p.source ?? ''
+    const placeholder = p.placeholder ?? ''
+    return `function ${v.id}(state: DashboardState, dispatch: DashboardDispatch): VNode {
+  const results = (state.values['${source}'] as readonly { id: string; label: string }[] | undefined) ?? [];
+  return h('section', { 'data-explore': '${v.id}', 'data-prompt': '${prompt}', 'data-source': '${source}' }, [
+    h('input', {
+      type: 'search',
+      placeholder: '${placeholder}',
+      value: String(state.drafts['${v.id}'] ?? ''),
+      onChange: (e: Event) => dispatch({ verb: 'EXPLORE', id: '${v.id}', action: 'query', payload: (e.target as HTMLInputElement).value }),
+    }),
+    h('ul', { role: 'listbox' }, results.map((r) => h('li', { key: r.id, 'data-result-id': r.id }, r.label))),
+  ]);
+}
+`
+  }
+
+  private emitAuthor(v: Verb): string {
+    const p = (v.params ?? {}) as AuthorParams
+    const prompt = p.prompt ?? ''
+    const schema = p.schema ?? ''
+    const saveMode = p.save_mode ?? 'manual'
+    return `function ${v.id}(state: DashboardState, dispatch: DashboardDispatch): VNode {
+  return h('form', { 'data-author': '${v.id}', 'data-prompt': '${prompt}', 'data-schema': '${schema}', 'data-save-mode': '${saveMode}' }, [
+    h('output', { 'data-schema-ref': '${schema}' }, String(state.drafts['${v.id}'] ?? state.values['${v.id}'] ?? '')),
+    h('textarea', {
+      name: '${v.id}',
+      value: String(state.drafts['${v.id}'] ?? state.values['${v.id}'] ?? ''),
+      onChange: (e: Event) => dispatch({ verb: 'AUTHOR', id: '${v.id}', action: 'edit', payload: (e.target as HTMLTextAreaElement).value }),
+    }),
+    h('button', { type: 'button', onClick: () => dispatch({ verb: 'AUTHOR', id: '${v.id}', action: 'save', payload: state.drafts['${v.id}'] }) }, 'Save'),
+  ]);
+}
+`
+  }
+
+  private emitOnboard(v: Verb): string {
+    const p = (v.params ?? {}) as OnboardParams
+    const prompt = p.prompt ?? ''
+    const progressType = p.progress_type ?? 'step'
+    const steps = p.steps ?? []
+    const stepLines = steps.map((s) =>
+      `      h('li', { 'data-step': '${s.id ?? ''}', 'data-active': String(current === '${s.id ?? ''}') }, '${s.label ?? ''}'),`,
+    ).join('\n')
+    const firstStep = steps[0]?.id ?? ''
+    return `function ${v.id}(state: DashboardState, dispatch: DashboardDispatch): VNode {
+  const current = String(state.selections['${v.id}'] ?? '${firstStep}');
+  return h('nav', { 'data-onboard': '${v.id}', 'data-prompt': '${prompt}', 'data-progress-type': '${progressType}' }, [
+    h('ol', null, [
+${stepLines}
+    ]),
+    h('button', { type: 'button', 'data-step-action': 'advance', onClick: () => dispatch({ verb: 'ONBOARD', id: '${v.id}', action: 'advance', payload: current }) }, 'Next'),
+    h('button', { type: 'button', 'data-step-action': 'skip', onClick: () => dispatch({ verb: 'ONBOARD', id: '${v.id}', action: 'skip', payload: current }) }, 'Skip'),
+  ]);
+}
+`
+  }
+
+  private emitCollect(v: Verb): string {
+    const p = (v.params ?? {}) as CollectParams
+    const type = p.type ?? 'text'
+    const label = p.label ?? ''
+    const name = p.name ?? ''
+    const required = p.required ?? false
+    return `function ${v.id}(state: DashboardState, dispatch: DashboardDispatch): VNode {
+  return h('label', { 'data-collect': '${v.id}', 'data-collect-type': '${type}' }, [
+    '${label}',
+    h('input', {
+      type: '${type}',
+      name: '${name}',
+      required: ${required},
+      value: String(state.drafts['${name}'] ?? ''),
+      onChange: (e: Event) => dispatch({ verb: 'COLLECT', id: '${v.id}', action: 'input', payload: (e.target as HTMLInputElement).value }),
+    }),
+  ]);
 }
 `
   }
