@@ -1,5 +1,5 @@
 import { BaseResolver, type VerbHandler } from '../core/resolver.js'
-import { partitionVerbs, type Composition, type ComputeVerb, type SurfaceVerb, type Verb } from '../core/ir.js'
+import { hasInteractiveVerbs, partitionVerbs, type Composition, type ComputeVerb, type SurfaceVerb, type Verb } from '../core/ir.js'
 
 type MonitorParams = {
   subject?: string
@@ -11,7 +11,14 @@ type DisplayParams = { type?: string; data?: string; emphasis?: string; label?: 
 type StatusParams = { type?: string; message?: string }
 type GuideParams = { type?: string; message?: string; priority?: string }
 
-const PREAMBLE_HELPERS = `import { type ReactNode } from 'react';
+type DecideParams = { prompt?: string; options?: { value?: string; label?: string }[] }
+type ConfigureParams = { prompt?: string; params?: { key?: string; type?: string; label?: string }[] }
+type ExploreParams = { prompt?: string; source?: string; placeholder?: string }
+type AuthorParams = { prompt?: string; schema?: string; save_mode?: string }
+type OnboardParams = { prompt?: string; steps?: { id?: string; label?: string }[]; progress_type?: string }
+type CollectParams = { type?: string; label?: string; name?: string; required?: boolean }
+
+const PREAMBLE_READONLY = `import { type ReactNode } from 'react';
 
 export type DashboardState = {
   values: Record<string, unknown>;
@@ -20,8 +27,24 @@ export type DashboardState = {
 };
 `
 
+const PREAMBLE_INTERACTIVE = `import { type ReactNode } from 'react';
+
+export type DashboardState = {
+  values: Record<string, unknown>;
+  status: 'idle' | 'loading' | 'empty';
+  alerts: readonly string[];
+  selections: Record<string, unknown>;
+  drafts: Record<string, unknown>;
+};
+
+export type DashboardDispatch = (event: { verb: string; id: string; action: string; payload: unknown }) => void;
+`
+
 export class ReactBackend extends BaseResolver {
   readonly label = 'react'
+
+  /** Set in emitPreamble; consumed by handlers and emitPostamble. */
+  private interactive = false
 
   protected handlers: Partial<Record<ComputeVerb | SurfaceVerb, VerbHandler>> = {
     MONITOR: (v) => this.emitMonitor(v),
@@ -29,6 +52,12 @@ export class ReactBackend extends BaseResolver {
     DISPLAY: (v) => this.emitDisplay(v),
     STATUS: (v) => this.emitStatus(v),
     GUIDE: (v) => this.emitGuide(v),
+    DECIDE: (v) => this.emitDecide(v),
+    CONFIGURE: (v) => this.emitConfigure(v),
+    EXPLORE: (v) => this.emitExplore(v),
+    AUTHOR: (v) => this.emitAuthor(v),
+    ONBOARD: (v) => this.emitOnboard(v),
+    COLLECT: (v) => this.emitCollect(v),
   }
 
   protected override handlerKind(): 'compute' | 'surface' {
@@ -36,6 +65,7 @@ export class ReactBackend extends BaseResolver {
   }
 
   protected override targetVerbs(c: Composition): { handled: Verb[]; stripped: Verb[] } {
+    this.interactive = hasInteractiveVerbs(c)
     const { compute, surface } = partitionVerbs(c)
     return { handled: surface, stripped: compute }
   }
@@ -50,7 +80,7 @@ export class ReactBackend extends BaseResolver {
       `// Composition: ${c.name} v${c.version}`,
       `// ${c.description ?? ''}`,
     ].join('\n')
-    return `${header}\n${PREAMBLE_HELPERS}`
+    return `${header}\n${this.interactive ? PREAMBLE_INTERACTIVE : PREAMBLE_READONLY}`
   }
 
   protected emitPostamble(c: Composition): string {
@@ -66,12 +96,34 @@ export class ReactBackend extends BaseResolver {
     const arrangeParams = (arrange.params ?? {}) as ArrangeParams
     const children = arrangeParams.children ?? []
 
-    const statusLines = statuses.map((s) => `      {${s.id}(state)}`)
-    const guideLines = guides.map((g) => `      {${g.id}(state)}`)
-    const childLines = children.map((childId) => `          {${childId}(state)}`)
+    if (!this.interactive) {
+      const statusLines = statuses.map((s) => `      {${s.id}(state)}`)
+      const guideLines = guides.map((g) => `      {${g.id}(state)}`)
+      const childLines = children.map((childId) => `          {${childId}(state)}`)
+      const lines: string[] = [
+        'export function Dashboard(state: DashboardState): ReactNode {',
+        `  return ${monitor.id}(`,
+        '    <>',
+        ...statusLines,
+        ...guideLines,
+        `      {${arrange.id}(`,
+        '        <>',
+        ...childLines,
+        '        </>,',
+        '      )}',
+        '    </>,',
+        '  );',
+        '}',
+      ]
+      return lines.join('\n') + '\n'
+    }
 
+    // Interactive form: pass dispatch alongside state.
+    const statusLines = statuses.map((s) => `      {${s.id}(state, dispatch)}`)
+    const guideLines = guides.map((g) => `      {${g.id}(state, dispatch)}`)
+    const childLines = children.map((childId) => `          {${childId}(state, dispatch)}`)
     const lines: string[] = [
-      'export function Dashboard(state: DashboardState): ReactNode {',
+      'export function Dashboard(state: DashboardState, dispatch: DashboardDispatch): ReactNode {',
       `  return ${monitor.id}(`,
       '    <>',
       ...statusLines,
@@ -85,7 +137,6 @@ export class ReactBackend extends BaseResolver {
       '  );',
       '}',
     ]
-
     return lines.join('\n') + '\n'
   }
 
@@ -126,15 +177,22 @@ export class ReactBackend extends BaseResolver {
 `
   }
 
+  private displaySig(): string {
+    return this.interactive
+      ? `(state: DashboardState, dispatch: DashboardDispatch)`
+      : `(state: DashboardState)`
+  }
+
   private emitDisplay(v: Verb): string {
     const p = (v.params ?? {}) as DisplayParams
     const type = p.type ?? ''
     const emphasis = p.emphasis ?? ''
     const dataKey = p.data ?? ''
     const openTag = `<section data-display='${v.id}' data-type='${type}' data-emphasis='${emphasis}'>`
+    const sig = this.displaySig()
     if (type === 'metric') {
       const label = p.label ?? ''
-      return `function ${v.id}(state: DashboardState): ReactNode {
+      return `function ${v.id}${sig}: ReactNode {
   return (
     ${openTag}
       <header>${label}</header>
@@ -145,7 +203,7 @@ export class ReactBackend extends BaseResolver {
 `
     }
     if (type === 'chart') {
-      return `function ${v.id}(state: DashboardState): ReactNode {
+      return `function ${v.id}${sig}: ReactNode {
   return (
     ${openTag}
       <pre>{JSON.stringify(state.values['${dataKey}'] ?? null, null, 2)}</pre>
@@ -154,7 +212,7 @@ export class ReactBackend extends BaseResolver {
 }
 `
     }
-    return `function ${v.id}(state: DashboardState): ReactNode {
+    return `function ${v.id}${sig}: ReactNode {
   return (
     ${openTag}
       {/* unhandled DISPLAY.type='${type}' */}
@@ -168,7 +226,7 @@ export class ReactBackend extends BaseResolver {
     const p = (v.params ?? {}) as StatusParams
     const type = p.type ?? ''
     const message = p.message ?? ''
-    return `function ${v.id}(state: DashboardState): ReactNode {
+    return `function ${v.id}${this.displaySig()}: ReactNode {
   if (state.status !== '${type}') return null;
   return (
     <div role='status' aria-live='polite' data-status='${type}'>
@@ -183,12 +241,157 @@ export class ReactBackend extends BaseResolver {
     const p = (v.params ?? {}) as GuideParams
     const message = p.message ?? ''
     const priority = p.priority ?? ''
-    return `function ${v.id}(state: DashboardState): ReactNode {
+    return `function ${v.id}${this.displaySig()}: ReactNode {
   if (!state.alerts.includes('${v.id}')) return null;
   return (
     <div role='alert' data-guide='${v.id}' data-priority='${priority}'>
       ${message}
     </div>
+  );
+}
+`
+  }
+
+  private emitDecide(v: Verb): string {
+    const p = (v.params ?? {}) as DecideParams
+    const prompt = p.prompt ?? ''
+    const opts = p.options ?? []
+    const buttons = opts.map((o) =>
+      `      <button
+        type='button'
+        data-option='${o.value ?? ''}'
+        onClick={() => dispatch({ verb: 'DECIDE', id: '${v.id}', action: 'select', payload: '${o.value ?? ''}' })}
+      >
+        ${o.label ?? ''}
+      </button>`,
+    ).join('\n')
+    return `function ${v.id}(state: DashboardState, dispatch: DashboardDispatch): ReactNode {
+  return (
+    <form data-decide='${v.id}' data-prompt='${prompt}'>
+${buttons}
+    </form>
+  );
+}
+`
+  }
+
+  private emitConfigure(v: Verb): string {
+    const p = (v.params ?? {}) as ConfigureParams
+    const prompt = p.prompt ?? ''
+    const params = p.params ?? []
+    const inputs = params.map((pa) =>
+      `      <label>
+        ${pa.label ?? ''}
+        <input
+          name='${pa.key ?? ''}'
+          type='${pa.type ?? 'text'}'
+          defaultValue={String(state.drafts['${pa.key ?? ''}'] ?? state.values['${pa.key ?? ''}'] ?? '')}
+          onChange={(e) => dispatch({ verb: 'CONFIGURE', id: '${v.id}', action: 'set', payload: { ${pa.key ?? ''}: e.currentTarget.value } })}
+        />
+      </label>`,
+    ).join('\n')
+    return `function ${v.id}(state: DashboardState, dispatch: DashboardDispatch): ReactNode {
+  return (
+    <form data-configure='${v.id}' data-prompt='${prompt}'>
+${inputs}
+      <button type='button' onClick={() => dispatch({ verb: 'CONFIGURE', id: '${v.id}', action: 'apply', payload: state.drafts })}>Apply</button>
+    </form>
+  );
+}
+`
+  }
+
+  private emitExplore(v: Verb): string {
+    const p = (v.params ?? {}) as ExploreParams
+    const prompt = p.prompt ?? ''
+    const source = p.source ?? ''
+    const placeholder = p.placeholder ?? ''
+    return `function ${v.id}(state: DashboardState, dispatch: DashboardDispatch): ReactNode {
+  const results = (state.values['${source}'] as readonly { id: string; label: string }[] | undefined) ?? [];
+  return (
+    <section data-explore='${v.id}' data-prompt='${prompt}' data-source='${source}'>
+      <input
+        type='search'
+        placeholder='${placeholder}'
+        defaultValue={String(state.drafts['${v.id}'] ?? '')}
+        onChange={(e) => dispatch({ verb: 'EXPLORE', id: '${v.id}', action: 'query', payload: e.currentTarget.value })}
+      />
+      <ul role='listbox'>
+        {results.map((r) => (
+          <li key={r.id} data-result-id={r.id}>{r.label}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+`
+  }
+
+  private emitAuthor(v: Verb): string {
+    const p = (v.params ?? {}) as AuthorParams
+    const prompt = p.prompt ?? ''
+    const schema = p.schema ?? ''
+    const saveMode = p.save_mode ?? 'manual'
+    return `function ${v.id}(state: DashboardState, dispatch: DashboardDispatch): ReactNode {
+  return (
+    <form data-author='${v.id}' data-prompt='${prompt}' data-schema='${schema}' data-save-mode='${saveMode}'>
+      <output data-schema-ref='${schema}'>
+        {String(state.drafts['${v.id}'] ?? state.values['${v.id}'] ?? '')}
+      </output>
+      <textarea
+        name='${v.id}'
+        defaultValue={String(state.drafts['${v.id}'] ?? state.values['${v.id}'] ?? '')}
+        onChange={(e) => dispatch({ verb: 'AUTHOR', id: '${v.id}', action: 'edit', payload: e.currentTarget.value })}
+      />
+      <button type='button' onClick={() => dispatch({ verb: 'AUTHOR', id: '${v.id}', action: 'save', payload: state.drafts['${v.id}'] })}>Save</button>
+    </form>
+  );
+}
+`
+  }
+
+  private emitOnboard(v: Verb): string {
+    const p = (v.params ?? {}) as OnboardParams
+    const prompt = p.prompt ?? ''
+    const progressType = p.progress_type ?? 'step'
+    const steps = p.steps ?? []
+    const stepLines = steps.map((s) =>
+      `        <li data-step='${s.id ?? ''}' data-active={String(current === '${s.id ?? ''}')}>${s.label ?? ''}</li>`,
+    ).join('\n')
+    const firstStep = steps[0]?.id ?? ''
+    return `function ${v.id}(state: DashboardState, dispatch: DashboardDispatch): ReactNode {
+  const current = String(state.selections['${v.id}'] ?? '${firstStep}');
+  return (
+    <nav data-onboard='${v.id}' data-prompt='${prompt}' data-progress-type='${progressType}'>
+      <ol>
+${stepLines}
+      </ol>
+      <button type='button' data-step-action='advance' onClick={() => dispatch({ verb: 'ONBOARD', id: '${v.id}', action: 'advance', payload: current })}>Next</button>
+      <button type='button' data-step-action='skip' onClick={() => dispatch({ verb: 'ONBOARD', id: '${v.id}', action: 'skip', payload: current })}>Skip</button>
+    </nav>
+  );
+}
+`
+  }
+
+  private emitCollect(v: Verb): string {
+    const p = (v.params ?? {}) as CollectParams
+    const type = p.type ?? 'text'
+    const label = p.label ?? ''
+    const name = p.name ?? ''
+    const required = p.required ?? false
+    return `function ${v.id}(state: DashboardState, dispatch: DashboardDispatch): ReactNode {
+  return (
+    <label data-collect='${v.id}' data-collect-type='${type}'>
+      ${label}
+      <input
+        type='${type}'
+        name='${name}'
+        required={${required}}
+        defaultValue={String(state.drafts['${name}'] ?? '')}
+        onChange={(e) => dispatch({ verb: 'COLLECT', id: '${v.id}', action: 'input', payload: e.currentTarget.value })}
+      />
+    </label>
   );
 }
 `

@@ -10,9 +10,11 @@ import {
   mapExpr, reduceExpr, partitionVerbs, isSurfaceVerb,
 } from '../src/index.js'
 describe('public API', () => {
-  it('exposes 7 registered backends including react', () => {
+  it('exposes 9 registered backends including react/vue/svelte', () => {
     expect(availableTargets()).toContain('react')
-    expect(availableTargets()).toHaveLength(7)
+    expect(availableTargets()).toContain('vue')
+    expect(availableTargets()).toContain('svelte')
+    expect(availableTargets()).toHaveLength(9)
   })
   it('has resolve, resolveAll, registerResolver, BaseResolver as callable values', () => {
     expect(typeof resolve).toBe('function')

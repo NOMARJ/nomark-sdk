@@ -32,6 +32,18 @@ describe('resolve() target dispatch', () => {
     ).toThrow(/ambiguous target — pass a specific label string/)
   })
 
+  it('throws on an ambiguous TargetTag for vue', () => {
+    expect(() =>
+      resolve(FIXTURE_SURFACE_COMPOSITION, { compute: 'python', surface: 'vue' }),
+    ).toThrow(/ambiguous target — pass a specific label string/)
+  })
+
+  it('throws on an ambiguous TargetTag for svelte', () => {
+    expect(() =>
+      resolve(FIXTURE_SURFACE_COMPOSITION, { compute: 'rust', surface: 'svelte' }),
+    ).toThrow(/ambiguous target — pass a specific label string/)
+  })
+
   it('throws on an empty TargetTag (neither set)', () => {
     expect(() => resolve(FIXTURE_COMPOSITION, {})).toThrow(
       /target has no compute or surface tag/,
@@ -44,10 +56,10 @@ describe('resolve() target dispatch', () => {
     )
   })
 
-  // Intentional pin: this snapshot breaks the day someone adds an 8th backend,
+  // Intentional pin: this snapshot breaks the day someone adds a 10th backend,
   // forcing an explicit decision + README + SOLUTION.md update. Relax to
   // `toContain(...)` only if the registry becomes dynamically-populated.
-  it('exposes all 7 registered backends via availableTargets()', () => {
+  it('exposes all 9 registered backends via availableTargets()', () => {
     expect(availableTargets()).toEqual([
       'python',
       'react',
@@ -55,7 +67,9 @@ describe('resolve() target dispatch', () => {
       'sql-mysql',
       'sql-postgres',
       'sql-sqlite',
+      'svelte',
       'typescript',
+      'vue',
     ])
   })
 })

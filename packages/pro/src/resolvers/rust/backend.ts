@@ -1,5 +1,5 @@
 import { BaseResolver, type ResolverFile, type VerbHandler } from '../core/resolver.js'
-import { partitionVerbs, type Composition, type ComputeVerb, type Verb } from '../core/ir.js'
+import { buildLinearChain, hasFlowVerbs, partitionVerbs, type Composition, type ComputeVerb, type Verb } from '../core/ir.js'
 
 type FetchParams = { source?: { config?: { url?: string } } }
 type ValidateParams = { on_fail?: { action?: string; target?: string } }
@@ -8,6 +8,34 @@ type FilterParams = { predicate?: string }
 type ReduceParams = { expression?: string }
 type PersistParams = { sink?: { config?: { table?: string } } }
 type EmitParams = { target?: { config?: { url?: string; channel?: string } } }
+type EnrichParams = { with?: Record<string, unknown> }
+type DeleteParams = { sink?: { config?: { table?: string } }; predicate?: string }
+type StreamParams = { source?: { config?: { table?: string } }; batch_size?: number }
+type InlineTarget = { verb: string; params?: Record<string, unknown> }
+type RetryParams = {
+  of?: InlineTarget
+  policy?: { max?: number; delay_ms?: number; backoff?: 'linear' | 'exponential'; jitter?: boolean }
+  error_route?: string
+}
+type CompensateParams = {
+  receipt_from?: string
+  reverse?: InlineTarget
+  idempotent?: boolean
+  reason?: string
+}
+type ErrorParams = {
+  of?: InlineTarget
+  catch?: string[]
+  handler?: InlineTarget
+  terminate_on_match?: boolean
+}
+type AwaitParams = { event?: { topic?: string }; timeout_ms?: number; timeout_route?: string }
+type BranchParams = { conditions?: { when?: string; then?: string }[]; default?: string }
+type SplitParams = { strategy?: string; targets?: string[] }
+type MergeParams = { sources?: string[]; strategy?: string; timeout_ms?: number; combine?: string; from?: string }
+type GateParams = { actor?: { role?: string; id?: string }; prompt?: string; options?: string[]; timeout_ms?: number; default_route?: string }
+type SignalParams = { system?: string; signal?: { type?: string; url?: string }; timeout_ms?: number; timeout_route?: string }
+type TerminateParams = { reason?: string; status?: string; cleanup?: string[] }
 
 const PREAMBLE_HELPERS = `use std::collections::HashMap;
 use std::time::Duration as StdDuration;
@@ -185,6 +213,19 @@ export class RustBackend extends BaseResolver {
     REDUCE: (v) => this.emitReduce(v),
     PERSIST: (v) => this.emitPersist(v),
     EMIT: (v) => this.emitEmit(v),
+    ENRICH: (v) => this.emitEnrich(v),
+    DELETE: (v) => this.emitDelete(v),
+    STREAM: (v) => this.emitStream(v),
+    RETRY: (v) => this.emitRetry(v),
+    COMPENSATE: (v) => this.emitCompensate(v),
+    ERROR: (v) => this.emitError(v),
+    AWAIT: (v) => this.emitAwait(v),
+    BRANCH: (v) => this.emitBranch(v),
+    SPLIT: (v) => this.emitSplit(v),
+    MERGE: (v) => this.emitMerge(v),
+    GATE: (v) => this.emitGate(v),
+    SIGNAL: (v) => this.emitSignal(v),
+    TERMINATE: (v) => this.emitTerminate(v),
   }
 
   protected rootFileName(c: Composition): string {
@@ -206,12 +247,47 @@ export class RustBackend extends BaseResolver {
 
   protected emitPostamble(c: Composition): string {
     const { compute } = partitionVerbs(c)
-    const first = compute[0]?.id ?? 'start'
+    if (!hasFlowVerbs(c)) {
+      // Linear form (BC-preserved): identical to pre-W5 emission.
+      const first = compute[0]?.id ?? 'start'
+      const cases = compute
+        .map((v, i) => {
+          const next = compute[i + 1]
+          const middleLine = next
+            ? `            Box::pin(_execute(${JSON.stringify(next.id)}, ctx)).await?;`
+            : ''
+          return `        ${JSON.stringify(v.id)} => {
+            let r = ${v.id}(ctx).await?;
+            ctx.values.insert(${JSON.stringify(v.id)}.to_string(), r);
+${middleLine}
+            Ok(())
+        }`
+        })
+        .join('\n')
+
+      return `#[async_recursion::async_recursion]
+async fn _execute(id: &str, ctx: &mut Ctx) -> Result<()> {
+    match id {
+${cases}
+        other => Err(anyhow!("unknown verb id: {}", other)),
+    }
+}
+
+pub async fn run(input: Value) -> Result<Ctx> {
+    let mut ctx = Ctx { input, ..Default::default() };
+    _execute(${JSON.stringify(first)}, &mut ctx).await?;
+    Ok(ctx)
+}`
+    }
+
+    // Graph form: chain respects SPLIT-children + self-dispatching verbs.
+    // TERMINATE propagates as a tagged anyhow error caught by run().
+    const chain = buildLinearChain(c)
     const cases = compute
-      .map((v, i) => {
-        const next = compute[i + 1]
-        const middleLine = next
-          ? `            Box::pin(_execute(${JSON.stringify(next.id)}, ctx)).await?;`
+      .map((v) => {
+        const linearNext = chain.next.get(v.id)
+        const middleLine = linearNext
+          ? `            Box::pin(_execute(${JSON.stringify(linearNext)}, ctx)).await?;`
           : ''
         return `        ${JSON.stringify(v.id)} => {
             let r = ${v.id}(ctx).await?;
@@ -232,8 +308,11 @@ ${cases}
 
 pub async fn run(input: Value) -> Result<Ctx> {
     let mut ctx = Ctx { input, ..Default::default() };
-    _execute(${JSON.stringify(first)}, &mut ctx).await?;
-    Ok(ctx)
+    match _execute(${JSON.stringify(chain.entry ?? 'start')}, &mut ctx).await {
+        Ok(_) => Ok(ctx),
+        Err(e) if e.to_string().starts_with("__TERMINATE:") => Ok(ctx),
+        Err(e) => Err(e),
+    }
 }`
   }
 
@@ -334,6 +413,54 @@ pub async fn run(input: Value) -> Result<Ctx> {
 `
   }
 
+  private emitEnrich(v: Verb): string {
+    const p = (v.params ?? {}) as EnrichParams
+    const extras = JSON.stringify(p.with ?? {})
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    let input = ctx.input.clone();
+    let extras: Value = serde_json::from_str(${JSON.stringify(extras)})?;
+    let merge = |row: &Value| -> Value {
+        let mut m = row.as_object().cloned().unwrap_or_default();
+        if let Some(o) = extras.as_object() { for (k, v) in o { m.insert(k.clone(), v.clone()); } }
+        Value::Object(m)
+    };
+    Ok(if input.is_array() {
+        Value::Array(input.as_array().unwrap().iter().map(merge).collect())
+    } else {
+        merge(&input)
+    })
+}
+`
+  }
+
+  private emitDelete(v: Verb): string {
+    const p = (v.params ?? {}) as DeleteParams
+    const table = p.sink?.config?.table ?? 'unknown_table'
+    const predicate = p.predicate ?? 'TRUE'
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    {
+        let pool = sqlx::postgres::PgPoolOptions::new().connect(&std::env::var("DATABASE_URL")?).await?;
+        sqlx::query("DELETE FROM ${table} WHERE ${predicate}").execute(&pool).await?;
+    }
+    let receipt = new_receipt("sql:${table}", false);
+    ctx.receipts.insert(${JSON.stringify(v.id)}.to_string(), receipt.clone());
+    Ok(json!({ "id": receipt.id, "timestamp": receipt.timestamp, "sink": receipt.sink, "reversible": receipt.reversible }))
+}
+`
+  }
+
+  private emitStream(v: Verb): string {
+    const p = (v.params ?? {}) as StreamParams
+    const table = p.source?.config?.table ?? 'unknown_table'
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    // STREAM: host should adapt this to async iteration over a real cursor.
+    let pool = sqlx::postgres::PgPoolOptions::new().connect(&std::env::var("DATABASE_URL")?).await?;
+    let rows: Vec<Value> = sqlx::query_scalar::<_, Value>("SELECT row_to_json(t) FROM ${table} t").fetch_all(&pool).await?;
+    Ok(Value::Array(rows))
+}
+`
+  }
+
   private emitEmit(v: Verb): string {
     const p = (v.params ?? {}) as EmitParams
     const url = p.target?.config?.url ?? ''
@@ -345,6 +472,241 @@ pub async fn run(input: Value) -> Result<Ctx> {
         reqwest::Client::new().post(${JSON.stringify(url)}).json(&body).send().await?;
     }
     Ok(Value::Null)
+}
+`
+  }
+
+  /** Inline a target verb's body for use inside a resilience verb's function.
+   *  Returns lines indented with `indent`, ending with an `Ok(...)` expression
+   *  suitable as the closure's return. */
+  private inlineBody(target: InlineTarget, indent: string = '    '): string {
+    const t = target ?? { verb: 'NOOP' }
+    switch (t.verb) {
+      case 'FETCH': {
+        const p = (t.params ?? {}) as FetchParams
+        const url = p.source?.config?.url ?? ''
+        return `${indent}let r = reqwest::Client::new().request(reqwest::Method::from_bytes("GET".as_bytes())?, ${JSON.stringify(url)}).send().await?.error_for_status()?;
+${indent}Ok(r.json::<Value>().await?)`
+      }
+      case 'VALIDATE': {
+        const p = (t.params ?? {}) as ValidateParams
+        const action = p.on_fail?.action ?? 'flag'
+        return `${indent}let ok = true;
+${indent}if !ok { anyhow::bail!("VALIDATE failed (action=${action})"); }
+${indent}Ok(ctx.input.clone())`
+      }
+      case 'DELETE': {
+        const p = (t.params ?? {}) as DeleteParams
+        const table = p.sink?.config?.table ?? 'unknown_table'
+        const predicate = p.predicate ?? 'TRUE'
+        return `${indent}let pool = sqlx::postgres::PgPoolOptions::new().connect(&std::env::var("DATABASE_URL")?).await?;
+${indent}sqlx::query("DELETE FROM ${table} WHERE ${predicate}").execute(&pool).await?;
+${indent}let receipt = new_receipt("sql:${table}", false);
+${indent}Ok(json!({ "id": receipt.id, "timestamp": receipt.timestamp, "sink": receipt.sink, "reversible": receipt.reversible }))`
+      }
+      case 'EMIT': {
+        const p = (t.params ?? {}) as EmitParams
+        const url = p.target?.config?.url ?? ''
+        const channel = p.target?.config?.channel ?? ''
+        return `${indent}let payload = ctx.input.clone();
+${indent}let body = json!({ "channel": ${JSON.stringify(channel)}, "text": payload });
+${indent}reqwest::Client::new().post(${JSON.stringify(url)}).json(&body).send().await?;
+${indent}Ok(Value::Null)`
+      }
+      default:
+        return `${indent}// inline target verb '${t.verb}' not specialised — host required
+${indent}Ok(ctx.input.clone())`
+    }
+  }
+
+  private emitRetry(v: Verb): string {
+    const p = (v.params ?? {}) as RetryParams
+    const target = p.of ?? { verb: 'NOOP' }
+    const max = p.policy?.max ?? 3
+    const delay = p.policy?.delay_ms ?? 1000
+    const backoff = p.policy?.backoff ?? 'exponential'
+    const jitter = p.policy?.jitter ?? false
+    const errorRoute = p.error_route
+    const attemptBlock = `let attempt = || async {
+${this.inlineBody(target, '        ')}
+    };`
+    if (!errorRoute) {
+      return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    ${attemptBlock}
+    retry(attempt, ${max}, ${delay}, ${JSON.stringify(backoff)}, ${jitter}).await
+}
+`
+    }
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    ${attemptBlock}
+    match retry(attempt, ${max}, ${delay}, ${JSON.stringify(backoff)}, ${jitter}).await {
+        Ok(v) => Ok(v),
+        Err(_) => {
+            Box::pin(_execute(${JSON.stringify(errorRoute)}, ctx)).await?;
+            Ok(ctx.values.get(${JSON.stringify(errorRoute)}).cloned().unwrap_or(Value::Null))
+        }
+    }
+}
+`
+  }
+
+  private emitCompensate(v: Verb): string {
+    const p = (v.params ?? {}) as CompensateParams
+    const receiptFrom = p.receipt_from ?? ''
+    const reverse = p.reverse ?? { verb: 'NOOP' }
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    let receipt = ctx.receipts.get(${JSON.stringify(receiptFrom)}).cloned()
+        .ok_or_else(|| anyhow!("COMPENSATE ${v.id}: no receipt for ${receiptFrom}"))?;
+    if !receipt.reversible { anyhow::bail!("COMPENSATE ${v.id}: receipt is non-reversible"); }
+${this.inlineBody(reverse, '    ')}
+}
+`
+  }
+
+  private emitError(v: Verb): string {
+    const p = (v.params ?? {}) as ErrorParams
+    const target = p.of ?? { verb: 'NOOP' }
+    const catches = JSON.stringify(p.catch ?? [])
+    const handler = p.handler ?? { verb: 'NOOP' }
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    let target = || async {
+${this.inlineBody(target, '        ')}
+    };
+    match target().await {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            let catches: Vec<&str> = serde_json::from_str(${JSON.stringify(catches)})?;
+            let name = format!("{:?}", e);
+            if catches.iter().any(|t| name.contains(t)) {
+${this.inlineBody(handler, '                ')}
+            } else { Err(e) }
+        }
+    }
+}
+`
+  }
+
+  private emitBranch(v: Verb): string {
+    const p = (v.params ?? {}) as BranchParams
+    const conds = (p.conditions ?? []).map(
+      (c) =>
+        `    if predicate(${JSON.stringify(c.when ?? 'false')}, &ctx.input) {
+        Box::pin(_execute(${JSON.stringify(c.then ?? '')}, ctx)).await?;
+        return Ok(ctx.values.get(${JSON.stringify(c.then ?? '')}).cloned().unwrap_or(Value::Null));
+    }`,
+    ).join('\n')
+    const fallback = p.default
+      ? `    Box::pin(_execute(${JSON.stringify(p.default)}, ctx)).await?;
+    Ok(ctx.values.get(${JSON.stringify(p.default)}).cloned().unwrap_or(Value::Null))`
+      : '    Ok(Value::Null)'
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+${conds}
+${fallback}
+}
+`
+  }
+
+  private emitSplit(v: Verb): string {
+    const p = (v.params ?? {}) as SplitParams
+    const targets = JSON.stringify(p.targets ?? [])
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    let targets: Vec<&str> = serde_json::from_str(${JSON.stringify(targets)})?;
+    let input = ctx.input.clone();
+    let mut results: Vec<Value> = Vec::new();
+    for t in &targets {
+        let mut branch = Ctx { input: input.clone(), ..Default::default() };
+        Box::pin(_execute(t, &mut branch)).await?;
+        results.push(branch.values.get(*t).cloned().unwrap_or(Value::Null));
+    }
+    ctx.values.insert(format!("{}:branches", ${JSON.stringify(v.id)}), Value::Array(results.clone()));
+    Ok(Value::Array(results))
+}
+`
+  }
+
+  private emitMerge(v: Verb): string {
+    const p = (v.params ?? {}) as MergeParams
+    const strategy = p.strategy ?? 'all'
+    const splitId = p.from ?? ''
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    let key = format!("{}:branches", ${JSON.stringify(splitId)});
+    let branches = ctx.values.get(&key).cloned().unwrap_or(Value::Array(Vec::new()));
+    let arr = branches.as_array().cloned().unwrap_or_default();
+    if ${JSON.stringify(strategy)} == "first" { return Ok(arr.into_iter().next().unwrap_or(Value::Null)); }
+    if ${JSON.stringify(strategy)} == "majority" {
+        let mut counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+        for b in &arr { *counts.entry(b.to_string()).or_insert(0) += 1; }
+        let best = counts.into_iter().max_by_key(|(_, n)| *n);
+        return Ok(best.and_then(|(k, _)| serde_json::from_str(&k).ok()).unwrap_or(Value::Null));
+    }
+    let mut flat: Vec<Value> = Vec::new();
+    for b in arr { if let Some(a) = b.as_array() { flat.extend(a.clone()); } else { flat.push(b); } }
+    Ok(Value::Array(flat))
+}
+`
+  }
+
+  private emitGate(v: Verb): string {
+    const p = (v.params ?? {}) as GateParams
+    const prompt = p.prompt ?? ''
+    const fallback = p.default_route ?? ''
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    // GATE: human-in-the-loop. Host injects via a feature flag or trait obj.
+    // Default fallback is the timeout_route (or null).
+    let _prompt = ${JSON.stringify(prompt)};
+    let decision: Option<Value> = None;
+    if decision.is_none() && !${JSON.stringify(fallback)}.is_empty() {
+        Box::pin(_execute(${JSON.stringify(fallback)}, ctx)).await?;
+        return Ok(ctx.values.get(${JSON.stringify(fallback)}).cloned().unwrap_or(Value::Null));
+    }
+    Ok(decision.unwrap_or(Value::Null))
+}
+`
+  }
+
+  private emitAwait(v: Verb): string {
+    const p = (v.params ?? {}) as AwaitParams
+    const topic = p.event?.topic ?? ''
+    const route = p.timeout_route ?? ''
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    let _topic = ${JSON.stringify(topic)};
+    // AWAIT: blocking on event/time/signal. Host runtime drives.
+    let ev: Option<Value> = None;
+    if ev.is_none() && !${JSON.stringify(route)}.is_empty() {
+        Box::pin(_execute(${JSON.stringify(route)}, ctx)).await?;
+        return Ok(ctx.values.get(${JSON.stringify(route)}).cloned().unwrap_or(Value::Null));
+    }
+    Ok(ev.unwrap_or(Value::Null))
+}
+`
+  }
+
+  private emitSignal(v: Verb): string {
+    const p = (v.params ?? {}) as SignalParams
+    const system = p.system ?? ''
+    const route = p.timeout_route ?? ''
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    let _system = ${JSON.stringify(system)};
+    // SIGNAL: dispatch to external system. Host runtime drives.
+    let r: Option<Value> = None;
+    if r.is_none() && !${JSON.stringify(route)}.is_empty() {
+        Box::pin(_execute(${JSON.stringify(route)}, ctx)).await?;
+        return Ok(ctx.values.get(${JSON.stringify(route)}).cloned().unwrap_or(Value::Null));
+    }
+    Ok(r.unwrap_or(Value::Null))
+}
+`
+  }
+
+  private emitTerminate(v: Verb): string {
+    const p = (v.params ?? {}) as TerminateParams
+    const reason = p.reason ?? ''
+    const status = p.status ?? 'failed'
+    const cleanup = JSON.stringify(p.cleanup ?? [])
+    return `async fn ${v.id}(ctx: &mut Ctx) -> Result<Value> {
+    let cleanup: Vec<&str> = serde_json::from_str(${JSON.stringify(cleanup)})?;
+    for cid in cleanup { Box::pin(_execute(cid, ctx)).await?; }
+    Err(anyhow!("__TERMINATE: {} (status={})", ${JSON.stringify(reason)}, ${JSON.stringify(status)}))
 }
 `
   }
