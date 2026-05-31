@@ -375,6 +375,6 @@ The lint hook does not gate itself or its config files. The governance of change
 *This Charter is the constitutional layer of the NOMARK agent system. All other documents defer to it. Simple. Efficient. Wins.*
 
 <!-- CORE:END v2.4.0 -->
-<!-- Repo-local constitutional articles (if any) go below this marker. The sync mechanism replaces only the content between CORE:BEGIN and CORE:END. -->
+<!-- Canonical source of the core block above: nomark-method. Repo-local constitutional articles (if any) go below this marker; the sync mechanism replaces only the content between CORE:BEGIN and CORE:END and leaves this appendix untouched. -->
 
-<!-- APPENDIX: (none in nomark-method — this repo is the canonical core source) -->
+<!-- APPENDIX: repo-local constitutional articles go below this line. -->
