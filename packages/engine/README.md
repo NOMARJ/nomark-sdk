@@ -109,9 +109,82 @@ Includes offline queue, conflict resolution, privacy filtering, and merge strate
 
 ## CLI
 
+The `nomark` CLI imports your AI conversation exports into your NOMARK preference ledger.
+
+### Install
+
+```bash
+npm install -g @nomark-ai/engine
+# or use without installing:
+npx nomark <command>
+```
+
+Requires Node.js 18+.
+
+### Authenticate
+
+Get an API key from [nomark.ai](https://nomark.ai) and run:
+
+```bash
+npx nomark login
+```
+
+You will be prompted for your key (`nomark_sk_...`). Alternatively, set the `NOMARK_TOKEN` environment variable:
+
+```bash
+export NOMARK_TOKEN=nomark_sk_...
+npx nomark login
+```
+
+The key is saved to `~/.nomark/config.json` with mode 0600.
+
+Verify authentication:
+
+```bash
+npx nomark whoami
+```
+
+### Import
+
+Export your conversation history from ChatGPT, Claude, or Gemini, then import:
+
+```bash
+# ChatGPT — export from Settings → Data Controls → Export Data
+npx nomark import --platform chatgpt --file conversations.json
+
+# Claude — export from Settings → Privacy → Export Data
+npx nomark import --platform claude --file claude-export.json
+
+# Gemini — export via Google Takeout
+npx nomark import --platform gemini --file takeout.json
+```
+
+Use `--dry-run` to preview without writing changes (local mode only):
+
+```bash
+npx nomark import --platform chatgpt --file conversations.json --dry-run
+```
+
+Use `--ledger` to specify a custom ledger path (default: `./nomark-ledger.jsonl`):
+
+```bash
+npx nomark import --platform chatgpt --file conversations.json --ledger ~/my-ledger.jsonl
+```
+
+### Managing API Keys
+
+| Action | Command |
+|--------|---------|
+| Save key interactively | `npx nomark login` |
+| Save key from env var | `NOMARK_TOKEN=nomark_sk_... npx nomark login` |
+| Check current user | `npx nomark whoami` |
+
+The API key is stored in `~/.nomark/config.json` under the `api_key` field with file permissions set to 0600 (owner read/write only). It is never logged or echoed.
+
+To remove the key, delete the `api_key` field from `~/.nomark/config.json`.
+
 ```bash
 npx nomark profile         # Show resolved preference profile
-npx nomark import           # Import from ChatGPT/Claude exports
 npx nomark review           # Review and manage ledger entries
 ```
 
