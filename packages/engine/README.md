@@ -109,11 +109,57 @@ Includes offline queue, conflict resolution, privacy filtering, and merge strate
 
 ## CLI
 
+The `nomark` CLI lets you import conversation exports into your NOMARK preference ledger and inspect the resulting profile.
+
+### Install
+
 ```bash
-npx nomark profile         # Show resolved preference profile
-npx nomark import           # Import from ChatGPT/Claude exports
-npx nomark review           # Review and manage ledger entries
+npm install -g @nomark-ai/engine
+# or use without installing:
+npx nomark <command>
 ```
+
+Requires Node.js 18+.
+
+### Authenticate
+
+Get an API key from the NOMARK panel under **Settings → API Keys**, then run:
+
+```bash
+export NOMARK_TOKEN=nomark_sk_...
+nomark login
+```
+
+Your key is saved to `~/.nomark/config.json` (mode 0600). To verify it's working:
+
+```bash
+nomark whoami
+```
+
+### Import
+
+```bash
+# ChatGPT — export from chat.openai.com → Settings → Export
+nomark import --platform chatgpt --file conversations.json
+
+# Claude — export from claude.ai → Settings → Export data
+nomark import --platform claude --file claude-export.json
+
+# Gemini — export from Google Takeout (My Activity → Gemini)
+nomark import --platform gemini --file takeout.json
+```
+
+Each import prints a summary: conversations analyzed, signals extracted, and how many were promoted into your ledger.
+
+### Managing API Keys
+
+| Command | Description |
+|---------|-------------|
+| `nomark login` | Save an API key from `NOMARK_TOKEN` env or interactive prompt |
+| `nomark whoami` | Verify the saved key and show its last four characters |
+| `nomark config --model <id>` | Set the default model |
+
+Keys are stored as `api_key` in `~/.nomark/config.json`. The file is created with mode 0600 and is never logged or transmitted anywhere except the NOMARK API.
 
 ## API Reference
 

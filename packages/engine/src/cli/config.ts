@@ -6,38 +6,55 @@ export type NomarkConfig = {
   model?: string
   apiKey?: string
   ledgerPath?: string
+  token?: string
 }
 
-const CONFIG_DIR = path.join(os.homedir(), '.nomark')
-const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json')
+function getConfigDir(): string {
+  return path.join(os.homedir(), '.nomark')
+}
+
+function getConfigPath(): string {
+  return path.join(getConfigDir(), 'config.json')
+}
 
 export function loadConfig(): NomarkConfig {
   const config: NomarkConfig = {}
+  const configPath = getConfigPath()
 
-  // File config
-  if (fs.existsSync(CONFIG_PATH)) {
+  if (fs.existsSync(configPath)) {
     try {
-      const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) as Record<string, unknown>
+      const raw = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>
       if (typeof raw['model'] === 'string') config.model = raw['model']
       if (typeof raw['apiKey'] === 'string') config.apiKey = raw['apiKey']
       if (typeof raw['ledgerPath'] === 'string') config.ledgerPath = raw['ledgerPath']
+      if (typeof raw['api_key'] === 'string') config.token = raw['api_key']
     } catch {
       // ignore malformed config
     }
   }
 
-  // Env overrides
   if (process.env['NOMARK_MODEL']) config.model = process.env['NOMARK_MODEL']
   if (process.env['NOMARK_API_KEY']) config.apiKey = process.env['NOMARK_API_KEY']
+  if (process.env['NOMARK_TOKEN']) config.token = process.env['NOMARK_TOKEN']
 
   return config
 }
 
 export function saveConfig(config: NomarkConfig): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true })
+  const configDir = getConfigDir()
+  const configPath = getConfigPath()
+  fs.mkdirSync(configDir, { recursive: true })
   const existing = loadConfig()
   const merged = { ...existing, ...config }
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2) + '\n')
+
+  const json: Record<string, unknown> = {}
+  if (merged.model !== undefined) json['model'] = merged.model
+  if (merged.apiKey !== undefined) json['apiKey'] = merged.apiKey
+  if (merged.ledgerPath !== undefined) json['ledgerPath'] = merged.ledgerPath
+  if (merged.token !== undefined) json['api_key'] = merged.token
+
+  fs.writeFileSync(configPath, JSON.stringify(json, null, 2) + '\n')
+  fs.chmodSync(configPath, 0o600)
 }
 
 export function configCommand(flags: Record<string, string | boolean>): void {
@@ -48,9 +65,13 @@ export function configCommand(flags: Record<string, string | boolean>): void {
   if (typeof flags['ledger'] === 'string') updates.ledgerPath = flags['ledger']
 
   if (Object.keys(updates).length === 0) {
-    // Show current config
     const config = loadConfig()
-    console.log(JSON.stringify(config, null, 2))
+    const display: Record<string, unknown> = {}
+    if (config.model !== undefined) display['model'] = config.model
+    if (config.apiKey !== undefined) display['apiKey'] = `***${config.apiKey.slice(-4)}`
+    if (config.ledgerPath !== undefined) display['ledgerPath'] = config.ledgerPath
+    if (config.token !== undefined) display['api_key'] = `***${config.token.slice(-4)}`
+    console.log(JSON.stringify(display, null, 2))
     return
   }
 
