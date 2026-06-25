@@ -3,8 +3,10 @@
 import { parseArgs } from './args.js'
 import { configCommand } from './config.js'
 import { importCommand } from './import.js'
+import { loginCommand } from './login.js'
 import { profileCommand } from './profile.js'
 import { reviewCommand } from './review.js'
+import { whoamiCommand } from './whoami.js'
 
 const VERSION = '0.1.0'
 
@@ -15,6 +17,8 @@ const HELP = `
     npx nomark <command> [options]
 
   Commands:
+    login      Save your NOMARK API key
+    whoami     Check authentication status
     config     Configure model and API key
     import     Import AI conversation history
     profile    View your preference profile
@@ -25,13 +29,15 @@ const HELP = `
     --version  Show version
 
   Examples:
-    npx nomark config --model claude --api-key $ANTHROPIC_API_KEY
-    npx nomark import --platform chatgpt --file export.json
+    npx nomark login
+    npx nomark import --platform chatgpt --file conversations.json
+    npx nomark import --platform claude --file claude-export.json
+    npx nomark import --platform gemini --file takeout.json
     npx nomark profile
     npx nomark review
 `
 
-function main(): void {
+async function main(): Promise<void> {
   const { command, flags } = parseArgs(process.argv)
 
   if (flags['version']) {
@@ -46,11 +52,17 @@ function main(): void {
 
   try {
     switch (command) {
+      case 'login':
+        await loginCommand()
+        break
+      case 'whoami':
+        await whoamiCommand()
+        break
       case 'config':
         configCommand(flags)
         break
       case 'import':
-        importCommand(flags)
+        await importCommand(flags)
         break
       case 'profile':
         profileCommand(flags)
@@ -71,4 +83,9 @@ function main(): void {
   }
 }
 
-main()
+main().catch((err: unknown) => {
+  if (err instanceof Error) {
+    console.error(`Error: ${err.message}`)
+  }
+  process.exit(1)
+})

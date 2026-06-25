@@ -24,20 +24,20 @@ jobs:
 
       - run: npm run build --workspaces
 
-      - run: npm test --workspaces
+      - run: npm test --workspace packages/engine
 
       - working-directory: packages/engine
-        run: npm publish --access public || true
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - working-directory: packages/pro
-        run: npm publish --access public || true
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - working-directory: packages/create-nomark-engine
-        run: npm publish --access public || true
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

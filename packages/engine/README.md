@@ -9,7 +9,11 @@ The open-core preference resolution engine for AI agents. Learns what humans mea
 ## Install
 
 ```bash
+# As a library
 npm install @nomark-ai/engine
+
+# As a CLI (no install required)
+npx nomark --help
 ```
 
 Requires Node.js 18+.
@@ -110,9 +114,69 @@ Includes offline queue, conflict resolution, privacy filtering, and merge strate
 ## CLI
 
 ```bash
+npx nomark login           # Save your API key
+npx nomark whoami          # Check authentication status
+npx nomark import --platform chatgpt --file conversations.json
 npx nomark profile         # Show resolved preference profile
-npx nomark import           # Import from ChatGPT/Claude exports
-npx nomark review           # Review and manage ledger entries
+npx nomark review          # Review low-confidence signals
+```
+
+### Authenticate
+
+Get an API key from [nomark.ai](https://nomark.ai) and run:
+
+```bash
+npx nomark login
+```
+
+You will be prompted to enter your key (`nomark_sk_...`). Alternatively, set the `NOMARK_TOKEN` environment variable to skip interactive login:
+
+```bash
+export NOMARK_TOKEN=nomark_sk_...
+npx nomark import --platform chatgpt --file conversations.json
+```
+
+The key is stored in `~/.nomark/config.json` with permissions `0600`.
+
+### Import
+
+Import your conversation history to build your NOMARK preference profile:
+
+```bash
+npx nomark import --platform chatgpt --file conversations.json
+npx nomark import --platform claude  --file claude-export.json
+npx nomark import --platform gemini  --file takeout.json
+```
+
+**Supported platforms:**
+
+| Platform | Export file | How to export |
+|----------|-------------|---------------|
+| `chatgpt` | `conversations.json` | Settings → Data controls → Export data |
+| `claude`  | `claude-export.json` | Settings → Privacy → Export data |
+| `gemini`  | `Takeout/...json`   | Google Takeout → Gemini Apps activity |
+
+After a successful import you will see:
+
+```
+  Analyzed 142 conversations from chatgpt.
+  Extracted 38 signals (12 high, 18 medium, 8 low confidence).
+  Promoted 30 to your NOMARK profile.
+```
+
+### Managing API Keys
+
+| Task | Command |
+|------|---------|
+| Save a new key | `npx nomark login` |
+| Check current auth | `npx nomark whoami` |
+| Update key | Run `npx nomark login` again — it overwrites the existing key |
+| Remove key | Delete `~/.nomark/config.json` |
+
+To use a different key for a single command without modifying the stored config:
+
+```bash
+NOMARK_TOKEN=nomark_sk_... npx nomark import --platform chatgpt --file conversations.json
 ```
 
 ## API Reference
