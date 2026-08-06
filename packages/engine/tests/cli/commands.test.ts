@@ -32,7 +32,7 @@ describe('configCommand', () => {
   it('saves api key', () => {
     configCommand({ 'api-key': 'sk-test-1234' })
     const config = loadConfig()
-    expect(config.apiKey).toBe('sk-test-1234')
+    expect(config.api_key).toBe('sk-test-1234')
   })
 
   it('merges with existing config', () => {
@@ -40,7 +40,7 @@ describe('configCommand', () => {
     configCommand({ 'api-key': 'sk-new' })
     const config = loadConfig()
     expect(config.model).toBe('gpt')
-    expect(config.apiKey).toBe('sk-new')
+    expect(config.api_key).toBe('sk-new')
   })
 })
 
