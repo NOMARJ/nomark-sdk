@@ -1,84 +1,110 @@
 import * as fs from 'node:fs'
-import * as path from 'node:path'
-import { parseChatGPTExport } from '../importers/chatgpt.js'
-import { parseClaudeExport } from '../importers/claude.js'
-import { runMigration } from '../importers/pipeline.js'
-import { writeLedger, parseLedger } from '../ledger.js'
-import type { Conversation } from '../importers/types.js'
+import { loadConfig } from './config.js'
 import { requireFlag } from './args.js'
 
-const DEFAULT_LEDGER = './nomark-ledger.jsonl'
+const PROCESS_IMPORT_URL = 'https://cnwiskdzeygqxezmazoq.supabase.co/functions/v1/process-import'
 
-export function importCommand(flags: Record<string, string | boolean>): void {
-  const platform = requireFlag(flags, 'platform')
+type Platform = 'chatgpt' | 'claude' | 'gemini'
+
+const SUPPORTED_PLATFORMS: Platform[] = ['chatgpt', 'claude', 'gemini']
+
+type ImportResult = {
+  platform: string
+  conversationsAnalyzed: number
+  signalsExtracted: number
+  signalsPromoted: number
+  byConfidence: {
+    high: number
+    medium: number
+    low: number
+  }
+}
+
+export async function importCommand(flags: Record<string, string | boolean>): Promise<void> {
+  const platform = requireFlag(flags, 'platform') as Platform
   const filePath = requireFlag(flags, 'file')
-  const dryRun = flags['dry-run'] !== false && flags['dry-run'] !== 'false'
-  const ledgerPath = typeof flags['ledger'] === 'string' ? flags['ledger'] : DEFAULT_LEDGER
-  const maxConversations = typeof flags['max'] === 'string' ? parseInt(flags['max'], 10) : undefined
 
-  // Read file
+  if (!SUPPORTED_PLATFORMS.includes(platform)) {
+    console.error(`Unsupported platform: ${platform}. Supported: ${SUPPORTED_PLATFORMS.join(', ')}`)
+    process.exit(1)
+  }
+
   if (!fs.existsSync(filePath)) {
     console.error(`File not found: ${filePath}`)
     process.exit(1)
   }
 
-  const raw = fs.readFileSync(filePath, 'utf8')
-
-  const parsers: Record<string, (data: string) => Conversation[]> = {
-    chatgpt: parseChatGPTExport,
-    claude: parseClaudeExport,
-  }
-
-  const parser = parsers[platform]
-  if (!parser) {
-    console.error(`Unsupported platform: ${platform}. Supported: chatgpt, claude`)
+  let raw: string
+  try {
+    raw = fs.readFileSync(filePath, 'utf8')
+  } catch {
+    console.error(`Error: Could not read file: ${filePath}`)
     process.exit(1)
-    return // unreachable but satisfies TS
-  }
-
-  const conversations = parser(raw)
-
-  if (conversations.length === 0) {
-    console.log('No conversations found in export file.')
     return
   }
 
-  // Load existing ledger for dedup
-  let existingLedger = ''
-  if (fs.existsSync(ledgerPath)) {
-    existingLedger = fs.readFileSync(ledgerPath, 'utf8')
+  let data: unknown
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    console.error(`Error: Invalid JSON in file: ${filePath}`)
+    process.exit(1)
+    return
   }
 
-  // Run pipeline
-  const report = runMigration(conversations, {
-    existingLedger: existingLedger || undefined,
-    dryRun,
-    maxConversations,
-  })
+  const config = loadConfig()
+  const token = config.token
 
-  // Display report
+  if (!token) {
+    console.error('Not authenticated. Run `nomark login` first.')
+    process.exit(1)
+  }
+
+  let response: Response
+  try {
+    response = await fetch(PROCESS_IMPORT_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ platform, data }),
+    })
+  } catch {
+    console.error('Error: Could not reach NOMARK API. Check your network connection.')
+    process.exit(1)
+    return
+  }
+
+  if (!response.ok) {
+    let body = ''
+    try {
+      body = await response.text()
+    } catch {
+      // ignore read failure
+    }
+    if (response.status === 401) {
+      console.error('Error: Authentication failed (401). Run `nomark login` to re-authenticate.')
+    } else {
+      console.error(`Error: API request failed (${response.status}): ${body}`)
+    }
+    process.exit(1)
+    return
+  }
+
+  let result: ImportResult
+  try {
+    result = (await response.json()) as ImportResult
+  } catch {
+    console.error('Error: Invalid response from NOMARK API.')
+    process.exit(1)
+    return
+  }
+
   console.log()
-  console.log(`  Analyzing ${report.conversationsAnalyzed} conversations...`)
-  console.log(`  Extracted ${report.signalsExtracted} signals (${report.byConfidence.high} high, ${report.byConfidence.medium} medium, ${report.byConfidence.low} low confidence)`)
-  console.log(`  Promoted ${report.signalsPromoted} to ledger.`)
-
-  if (report.byConfidence.low > 0) {
-    console.log(`  ${report.byConfidence.low} need review. Run: npx nomark review`)
-  }
-
-  if (dryRun) {
-    console.log()
-    console.log('  [DRY RUN] No changes written. Run with --dry-run=false to apply.')
-  } else {
-    // Write ledger
-    const existingEntries = existingLedger ? parseLedger(existingLedger) : []
-    const allEntries = [...existingEntries, ...report.ledgerEntries]
-    const content = writeLedger(allEntries)
-    fs.mkdirSync(path.dirname(path.resolve(ledgerPath)), { recursive: true })
-    fs.writeFileSync(ledgerPath, content)
-    console.log(`  Written to ${ledgerPath}`)
-  }
-
-  console.log('  No account needed. Everything runs locally.')
+  console.log(`Import complete. Platform: ${result.platform}.`)
+  console.log(`Conversations analyzed: ${result.conversationsAnalyzed}.`)
+  console.log(`Signals extracted: ${result.signalsExtracted} (${result.byConfidence.high} high, ${result.byConfidence.medium} medium, ${result.byConfidence.low} low confidence).`)
+  console.log(`Signals promoted to ledger: ${result.signalsPromoted}.`)
   console.log()
 }
